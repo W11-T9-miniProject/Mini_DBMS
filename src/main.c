@@ -3,6 +3,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 typedef struct {
     Db *db;
@@ -74,7 +78,7 @@ static void print_usage(void) {
          "Schema: users(id AUTO, name STRING[63 bytes], age INT32, email STRING[127 bytes] DEFAULT '')");
 }
 
-int main(int argc, char **argv) {
+static int run_cli(int argc, char **argv) {
     const char *directory = "data", *file_path = NULL, *sql = NULL;
     bool sync_writes = true;
     Cli cli = {0};
@@ -114,3 +118,26 @@ int main(int argc, char **argv) {
     }
     return ferror(stdout) ? 1 : 0;
 }
+
+#ifdef _WIN32
+int wmain(int argc, wchar_t **wide_argv) {
+    char **argv = calloc((size_t)argc, sizeof(*argv));
+    if (!argv) return 1;
+    bool converted = true;
+    for (int i = 0; i < argc; ++i) {
+        int bytes = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_argv[i], -1, NULL, 0, NULL, NULL);
+        if (bytes <= 0 || !(argv[i] = malloc((size_t)bytes)) ||
+            !WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, wide_argv[i], -1, argv[i], bytes, NULL, NULL)) {
+            converted = false;
+            break;
+        }
+    }
+    SetConsoleOutputCP(CP_UTF8);
+    int result = converted ? run_cli(argc, argv) : 1;
+    for (int i = 0; i < argc; ++i) free(argv[i]);
+    free(argv);
+    return result;
+}
+#else
+int main(int argc, char **argv) { return run_cli(argc, argv); }
+#endif

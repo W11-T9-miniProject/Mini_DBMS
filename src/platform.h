@@ -31,6 +31,8 @@ void platform_mutex_destroy(PlatformMutex *lock);
 void platform_mutex_lock(PlatformMutex *lock);
 void platform_mutex_unlock(PlatformMutex *lock);
 bool platform_create_directory(const char *path);
+/* Storage paths use UTF-8 on every platform, including Windows. */
+FILE *platform_open_file(const char *path, const char *mode);
 bool platform_seek(FILE *file, uint64_t offset);
 bool platform_file_size(FILE *file, uint64_t *size);
 bool platform_truncate(FILE *file, uint64_t size);

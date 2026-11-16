@@ -7,3 +7,8 @@ data/
 *.db
 *.lock
 __pycache__/
+*.dll
+*.so
+*.dylib
+*.lib
+*.exp

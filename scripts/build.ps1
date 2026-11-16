@@ -1,5 +1,5 @@
 param([switch]$Test, [switch]$Sanitize,
-      [Alias('Target')][ValidateSet('mini_db', 'db_tests', 'db_bench', 'db_load')][string[]]$BuildTarget)
+      [Alias('Target')][ValidateSet('mini_db', 'db_tests', 'db_bench', 'db_load', 'minidb')][string[]]$BuildTarget)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -14,12 +14,13 @@ foreach ($line in $environment) {
     $separator = $line.IndexOf('=')
     if ($separator -gt 0) { [Environment]::SetEnvironmentVariable($line.Substring(0, $separator), $line.Substring($separator + 1), 'Process') }
 }
-$core = @('error', 'platform', 'bptree', 'parser', 'storage', 'engine', 'script') | ForEach-Object { Join-Path $repo "src/$_.c" }
+$core = @('abi', 'error', 'platform', 'bptree', 'parser', 'storage', 'engine', 'script') | ForEach-Object { Join-Path $repo "src/$_.c" }
 $targets = @{
     mini_db = 'src/main.c'
     db_tests = 'tests/test_main.c'
     db_bench = 'tools/benchmark.c'
     db_load = 'tools/load_benchmark.c'
+    minidb = ''
 }
 if ($Sanitize) { $targets = @{ db_tests_asan = 'tests/test_main.c' } }
 elseif ($BuildTarget) {
@@ -36,8 +37,13 @@ foreach ($target in $targets.Keys) {
     New-Item -ItemType Directory -Force -Path $objectDirectory | Out-Null
     Push-Location $objectDirectory
     try {
-        $output = Join-Path $repo "build/$target.exe"
-        & cl.exe @compilerFlags "/I$repo/include" "/I$repo/src" @core (Join-Path $repo $targets[$target]) "/Fe:$output" /link /INCREMENTAL:NO
+        if ($target -eq 'minidb') {
+            $output = Join-Path $repo 'build/minidb.dll'
+            & cl.exe @compilerFlags /LD /DMINIDB_SHARED "/I$repo/include" "/I$repo/src" @core "/Fe:$output" /link /INCREMENTAL:NO
+        } else {
+            $output = Join-Path $repo "build/$target.exe"
+            & cl.exe @compilerFlags "/I$repo/include" "/I$repo/src" @core (Join-Path $repo $targets[$target]) "/Fe:$output" /link /INCREMENTAL:NO
+        }
         if ($LASTEXITCODE -ne 0) { throw "Build failed: $target" }
     } finally { Pop-Location }
 }

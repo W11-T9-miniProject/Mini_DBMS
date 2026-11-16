@@ -7,6 +7,12 @@
 #include <direct.h>
 #include <io.h>
 
+static bool utf8_to_wide(const char *text, wchar_t *wide, int capacity) {
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, wide, capacity) > 0) return true;
+    errno = EINVAL;
+    return false;
+}
+
 void platform_rwlock_init(PlatformRwLock *lock) { InitializeSRWLock(lock); }
 void platform_rwlock_destroy(PlatformRwLock *lock) { (void)lock; }
 void platform_read_lock(PlatformRwLock *lock) { AcquireSRWLockShared(lock); }
@@ -18,9 +24,16 @@ void platform_mutex_destroy(PlatformMutex *lock) { DeleteCriticalSection(lock); 
 void platform_mutex_lock(PlatformMutex *lock) { EnterCriticalSection(lock); }
 void platform_mutex_unlock(PlatformMutex *lock) { LeaveCriticalSection(lock); }
 bool platform_create_directory(const char *path) {
-    if (_mkdir(path) == 0) return true;
+    wchar_t wide[2048];
+    if (!utf8_to_wide(path, wide, 2048)) return false;
+    if (_wmkdir(wide) == 0) return true;
     struct _stat64 info;
-    return errno == EEXIST && _stat64(path, &info) == 0 && (info.st_mode & _S_IFDIR);
+    return errno == EEXIST && _wstat64(wide, &info) == 0 && (info.st_mode & _S_IFDIR);
+}
+FILE *platform_open_file(const char *path, const char *mode) {
+    wchar_t wide_path[2048], wide_mode[16];
+    if (!utf8_to_wide(path, wide_path, 2048) || !utf8_to_wide(mode, wide_mode, 16)) return NULL;
+    return _wfopen(wide_path, wide_mode);
 }
 bool platform_seek(FILE *file, uint64_t offset) {
     return offset <= INT64_MAX && _fseeki64(file, (int64_t)offset, SEEK_SET) == 0;
@@ -36,13 +49,17 @@ bool platform_truncate(FILE *file, uint64_t size) {
 }
 bool platform_sync(FILE *file) { return _commit(_fileno(file)) == 0; }
 bool platform_lock_file(const char *path, PlatformFileLock *lock) {
-    *lock = CreateFileA(path, GENERIC_READ | GENERIC_WRITE, 0, NULL,
+    wchar_t wide[2048];
+    if (!utf8_to_wide(path, wide, 2048)) return false;
+    *lock = CreateFileW(wide, GENERIC_READ | GENERIC_WRITE, 0, NULL,
                         OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     return *lock != INVALID_HANDLE_VALUE;
 }
 void platform_unlock_file(PlatformFileLock lock) { CloseHandle(lock); }
 bool platform_reader_open(const char *path, PlatformReader *reader) {
-    *reader = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    wchar_t wide[2048];
+    if (!utf8_to_wide(path, wide, 2048)) return false;
+    *reader = CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                           NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED | FILE_FLAG_RANDOM_ACCESS, NULL);
     return *reader != INVALID_HANDLE_VALUE;
 }
@@ -89,6 +106,7 @@ bool platform_create_directory(const char *path) {
     struct stat info;
     return errno == EEXIST && stat(path, &info) == 0 && S_ISDIR(info.st_mode);
 }
+FILE *platform_open_file(const char *path, const char *mode) { return fopen(path, mode); }
 bool platform_seek(FILE *file, uint64_t offset) {
     return offset <= INT64_MAX && fseeko(file, (off_t)offset, SEEK_SET) == 0;
 }

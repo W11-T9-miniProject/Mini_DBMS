@@ -8,6 +8,13 @@
 #define DB_NAME_SIZE 64
 #define DB_EMAIL_SIZE 128
 #define DB_ERROR_SIZE 256
+#define DB_ABI_VERSION 1u
+
+#if defined(_WIN32) && defined(MINIDB_SHARED)
+#define DB_API __declspec(dllexport)
+#else
+#define DB_API
+#endif
 
 typedef struct Db Db;
 
@@ -59,20 +66,25 @@ typedef struct {
 /* Opens directory/users.db. Only one process may open a directory at a time.
  * Individual execute calls are safe across threads. close requires joined callers.
  * sync_writes=true uses fsync/_commit before acknowledging an INSERT. */
-Db *db_open(const char *directory, bool sync_writes, DbError *error);
-void db_close(Db *db);
-DbStatus db_get_stats(Db *db, DbStats *stats, DbError *error);
+DB_API Db *db_open(const char *directory, bool sync_writes, DbError *error);
+DB_API void db_close(Db *db);
+DB_API DbStatus db_get_stats(Db *db, DbStats *stats, DbError *error);
 
 /* Executes exactly one statement. INSERT accepts multiple VALUES tuples.
  * SELECT streams matching rows, so it does not allocate a result-sized array. */
-DbStatus db_execute(Db *db, const char *sql, DbRowVisitor visitor,
+DB_API DbStatus db_execute(Db *db, const char *sql, DbRowVisitor visitor,
                     void *context, DbResult *result, DbError *error);
 
 /* Benchmark/test hook: identical query and parser, with index lookup disabled. */
-DbStatus db_execute_scan(Db *db, const char *sql, DbRowVisitor visitor,
+DB_API DbStatus db_execute_scan(Db *db, const char *sql, DbRowVisitor visitor,
                          void *context, DbResult *result, DbError *error);
 
-const char *db_plan_name(DbPlan plan);
-const char *db_status_name(DbStatus status);
+DB_API const char *db_plan_name(DbPlan plan);
+DB_API const char *db_status_name(DbStatus status);
+
+/* FFI validates version and struct sizes before passing memory across the ABI.
+ * kind: 1=DbRow, 2=DbResult, 3=DbError, 4=DbStats. Unknown kind returns 0. */
+DB_API uint32_t db_abi_version(void);
+DB_API size_t db_abi_sizeof(unsigned kind);
 
 #endif

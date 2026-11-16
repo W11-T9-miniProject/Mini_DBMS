@@ -97,8 +97,8 @@ DbStatus storage_open(Storage *storage, const char *directory, bool sync_writes,
         goto fail;
     }
     storage->process_lock_acquired = true;
-    storage->file = fopen(file_path, "r+b");
-    if (!storage->file && errno == ENOENT) storage->file = fopen(file_path, "w+b");
+    storage->file = platform_open_file(file_path, "r+b");
+    if (!storage->file && errno == ENOENT) storage->file = platform_open_file(file_path, "w+b");
     if (!storage->file) {
         db_error_set(error, DB_IO_ERROR, "Cannot open users.db: %s", strerror(errno));
         goto fail;
