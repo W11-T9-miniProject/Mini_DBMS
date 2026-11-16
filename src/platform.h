@@ -11,11 +11,13 @@
 typedef SRWLOCK PlatformRwLock;
 typedef CRITICAL_SECTION PlatformMutex;
 typedef HANDLE PlatformFileLock;
+typedef HANDLE PlatformReader;
 #else
 #include <pthread.h>
 typedef pthread_rwlock_t PlatformRwLock;
 typedef pthread_mutex_t PlatformMutex;
 typedef int PlatformFileLock;
+typedef int PlatformReader;
 #endif
 
 void platform_rwlock_init(PlatformRwLock *lock);
@@ -35,6 +37,10 @@ bool platform_truncate(FILE *file, uint64_t size);
 bool platform_sync(FILE *file);
 bool platform_lock_file(const char *path, PlatformFileLock *lock);
 void platform_unlock_file(PlatformFileLock lock);
+bool platform_reader_open(const char *path, PlatformReader *reader);
+void platform_reader_close(PlatformReader reader);
+/* Exact positional read; concurrent calls never share a file cursor. */
+bool platform_read_at(PlatformReader reader, uint64_t offset, void *buffer, size_t length);
 double platform_now(void);
 
 #endif

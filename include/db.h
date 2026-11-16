@@ -37,10 +37,14 @@ typedef struct {
     uint64_t first_insert_id;
     DbPlan plan;
     bool explain;
+    /* Diagnostic timings, in milliseconds. Included in total query latency. */
+    double lock_wait_ms;
+    double lock_hold_ms;
 } DbResult;
 
 /* Row memory is borrowed and valid only during the callback.
- * Called while a table read lock is held: do not reenter this Db.
+ * Called without table locks. INSERT during a callback is permitted; this
+ * SELECT keeps its original row-count snapshot. Do not close this Db here.
  * Return false to abort the query with DB_CALLBACK_ERROR. */
 typedef bool (*DbRowVisitor)(const DbRow *row, const DbResult *result, void *context);
 

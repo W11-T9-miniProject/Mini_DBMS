@@ -7,7 +7,7 @@ CORE = src/error.c src/platform.c src/bptree.c src/parser.c src/storage.c src/en
 HEADERS = $(wildcard include/*.h src/*.h)
 
 .PHONY: all test benchmark sanitize
-all: build/mini_db build/db_tests build/db_bench
+all: build/mini_db build/db_tests build/db_bench build/db_load
 
 build:
 	mkdir -p build
@@ -20,6 +20,9 @@ build/db_tests: $(CORE) tests/test_main.c $(HEADERS) | build
 
 build/db_bench: $(CORE) tools/benchmark.c $(HEADERS) | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/benchmark.c -o $@ $(LDLIBS)
+
+build/db_load: $(CORE) tools/load_benchmark.c $(HEADERS) | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/load_benchmark.c -o $@ $(LDLIBS)
 
 test: build/db_tests
 	./build/db_tests

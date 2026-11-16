@@ -80,8 +80,6 @@ static DbStatus initialize_or_validate_header(Storage *storage, uint64_t size, D
 
 DbStatus storage_open(Storage *storage, const char *directory, bool sync_writes, DbError *error) {
     memset(storage, 0, sizeof(*storage));
-    platform_mutex_init(&storage->cursor_lock);
-    storage->cursor = UINT64_MAX;
     storage->sync_writes = sync_writes;
     char file_path[1024], lock_path[1024];
     if (!directory || !directory[0] || strlen(directory) > 980) {
@@ -119,6 +117,11 @@ DbStatus storage_open(Storage *storage, const char *directory, bool sync_writes,
         goto fail;
     }
     storage->row_count = (size - STORAGE_HEADER_BYTES) / STORAGE_RECORD_BYTES;
+    if (!platform_reader_open(file_path, &storage->reader)) {
+        db_error_set(error, DB_IO_ERROR, "Cannot open positional reader");
+        goto fail;
+    }
+    storage->reader_open = true;
     return DB_OK;
 fail:
     storage_close(storage);
@@ -126,23 +129,32 @@ fail:
 }
 
 void storage_close(Storage *storage) {
+    if (storage->reader_open) platform_reader_close(storage->reader);
     if (storage->file) fclose(storage->file);
     if (storage->process_lock_acquired) platform_unlock_file(storage->process_lock);
-    platform_mutex_destroy(&storage->cursor_lock);
     storage->file = NULL;
     storage->process_lock_acquired = false;
+    storage->reader_open = false;
 }
 
 DbStatus storage_read(Storage *storage, uint64_t offset, DbRow *row, DbError *error) {
     unsigned char bytes[STORAGE_RECORD_BYTES];
-    platform_mutex_lock(&storage->cursor_lock);
-    bool success = true;
-    if (storage->cursor != offset) success = platform_seek(storage->file, offset);
-    if (success) success = fread(bytes, 1, sizeof(bytes), storage->file) == sizeof(bytes);
-    storage->cursor = success ? offset + sizeof(bytes) : UINT64_MAX;
-    platform_mutex_unlock(&storage->cursor_lock);
+    bool success = platform_read_at(storage->reader, offset, bytes, sizeof(bytes));
     if (!success) return db_error_set(error, DB_IO_ERROR, "Cannot read record at offset %llu", (unsigned long long)offset);
     return decode_record(bytes, row, error);
+}
+
+DbStatus storage_read_batch(Storage *storage, uint64_t offset, DbRow *rows, size_t count, DbError *error) {
+    if (count == 0 || count > STORAGE_READ_BATCH_ROWS)
+        return db_error_set(error, DB_IO_ERROR, "Invalid read batch size");
+    unsigned char bytes[STORAGE_READ_BATCH_ROWS * STORAGE_RECORD_BYTES];
+    if (!platform_read_at(storage->reader, offset, bytes, count * STORAGE_RECORD_BYTES))
+        return db_error_set(error, DB_IO_ERROR, "Cannot read batch at offset %llu", (unsigned long long)offset);
+    for (size_t i = 0; i < count; ++i) {
+        DbStatus status = decode_record(bytes + i * STORAGE_RECORD_BYTES, &rows[i], error);
+        if (status != DB_OK) return status;
+    }
+    return DB_OK;
 }
 
 static void rollback_failed_append(Storage *storage, uint64_t original_size) {
@@ -152,7 +164,6 @@ static void rollback_failed_append(Storage *storage, uint64_t original_size) {
     bool restored = platform_truncate(storage->file, original_size);
     restored = platform_seek(storage->file, original_size) && restored;
     if (storage->sync_writes) restored = platform_sync(storage->file) && restored;
-    storage->cursor = UINT64_MAX;
     storage->failed = !restored;
 }
 
@@ -166,13 +177,12 @@ DbStatus storage_append(Storage *storage, DbRow *rows, size_t count, DbError *er
         encode_record(bytes + i * STORAGE_RECORD_BYTES, &rows[i]);
     }
     uint64_t original_size = storage_row_offset(storage->row_count);
-    /* Caller holds the table's exclusive lock, so no read can use the cursor. */
+    /* One writer owns this stream. Readers use an independent positional handle. */
     bool success = platform_seek(storage->file, original_size) &&
                    fwrite(bytes, STORAGE_RECORD_BYTES, count, storage->file) == count &&
                    fflush(storage->file) == 0;
     if (success && storage->sync_writes) success = platform_sync(storage->file);
     free(bytes);
-    storage->cursor = UINT64_MAX;
     if (!success) {
         rollback_failed_append(storage, original_size);
         return db_error_set(error, DB_IO_ERROR, "Append failed%s", storage->failed ? "; close and reopen database" : "; write rolled back");

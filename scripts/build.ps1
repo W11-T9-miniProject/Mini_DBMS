@@ -1,4 +1,5 @@
-param([switch]$Test, [switch]$Sanitize)
+param([switch]$Test, [switch]$Sanitize,
+      [Alias('Target')][ValidateSet('mini_db', 'db_tests', 'db_bench', 'db_load')][string[]]$BuildTarget)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -18,8 +19,15 @@ $targets = @{
     mini_db = 'src/main.c'
     db_tests = 'tests/test_main.c'
     db_bench = 'tools/benchmark.c'
+    db_load = 'tools/load_benchmark.c'
 }
 if ($Sanitize) { $targets = @{ db_tests_asan = 'tests/test_main.c' } }
+elseif ($BuildTarget) {
+    $selectedTargets = @{}
+    foreach ($name in $BuildTarget) { $selectedTargets[$name] = $targets[$name] }
+    if ($Test) { $selectedTargets['db_tests'] = 'tests/test_main.c' }
+    $targets = $selectedTargets
+}
 $compilerFlags = @('/nologo', '/std:c11', '/W4', '/WX', '/Zi', '/D_CRT_SECURE_NO_WARNINGS')
 if ($Sanitize) { $compilerFlags += @('/O1', '/fsanitize=address') }
 else { $compilerFlags += '/O2' }

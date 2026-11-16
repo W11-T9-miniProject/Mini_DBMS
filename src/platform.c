@@ -41,6 +41,27 @@ bool platform_lock_file(const char *path, PlatformFileLock *lock) {
     return *lock != INVALID_HANDLE_VALUE;
 }
 void platform_unlock_file(PlatformFileLock lock) { CloseHandle(lock); }
+bool platform_reader_open(const char *path, PlatformReader *reader) {
+    *reader = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                          NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED | FILE_FLAG_RANDOM_ACCESS, NULL);
+    return *reader != INVALID_HANDLE_VALUE;
+}
+void platform_reader_close(PlatformReader reader) { CloseHandle(reader); }
+bool platform_read_at(PlatformReader reader, uint64_t offset, void *buffer, size_t length) {
+    if (offset > INT64_MAX || length > UINT32_MAX || length > (uint64_t)INT64_MAX - offset) return false;
+    OVERLAPPED operation = {0};
+    operation.Offset = (DWORD)offset;
+    operation.OffsetHigh = (DWORD)(offset >> 32);
+    /* Each outstanding request needs its own OVERLAPPED and completion event. */
+    operation.hEvent = CreateEventA(NULL, TRUE, FALSE, NULL);
+    if (!operation.hEvent) return false;
+    BOOL submitted = ReadFile(reader, buffer, (DWORD)length, NULL, &operation);
+    bool success = submitted || GetLastError() == ERROR_IO_PENDING;
+    DWORD transferred = 0;
+    if (success) success = GetOverlappedResult(reader, &operation, &transferred, TRUE) != 0;
+    CloseHandle(operation.hEvent);
+    return success && transferred == length;
+}
 double platform_now(void) {
     LARGE_INTEGER counter, frequency;
     QueryPerformanceCounter(&counter);
@@ -89,6 +110,24 @@ bool platform_lock_file(const char *path, PlatformFileLock *lock) {
     return false;
 }
 void platform_unlock_file(PlatformFileLock lock) { close(lock); }
+bool platform_reader_open(const char *path, PlatformReader *reader) {
+    *reader = open(path, O_RDONLY);
+    return *reader >= 0;
+}
+void platform_reader_close(PlatformReader reader) { close(reader); }
+bool platform_read_at(PlatformReader reader, uint64_t offset, void *buffer, size_t length) {
+    if (offset > INT64_MAX || length > (uint64_t)INT64_MAX - offset) return false;
+    size_t completed = 0;
+    while (completed < length) {
+        size_t chunk = length - completed;
+        if (chunk > 0x7fffffffu) chunk = 0x7fffffffu;
+        ssize_t count = pread(reader, (unsigned char *)buffer + completed, chunk, (off_t)(offset + completed));
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) return false;
+        completed += (size_t)count;
+    }
+    return true;
+}
 double platform_now(void) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);

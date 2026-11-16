@@ -369,6 +369,68 @@ static void test_concurrency(void) {
     puts("PASS concurrency: 4 writers + 2 readers, 800 unique consecutive IDs, reopen");
 }
 
+typedef struct {
+    Db *db;
+    const char *insert_sql;
+    uint64_t snapshot_rows, count;
+    bool inserted, valid;
+} SnapshotCheck;
+
+static bool insert_during_select(const DbRow *row, const DbResult *result, void *context) {
+    SnapshotCheck *check = context;
+    (void)result;
+    check->valid = check->valid && row->id <= check->snapshot_rows;
+    ++check->count;
+    if (!check->inserted) {
+        check->inserted = true;
+        DbError error;
+        DbResult inserted;
+        if (db_execute(check->db, check->insert_sql, NULL, NULL, &inserted, &error) != DB_OK ||
+            inserted.affected_rows != 400 || inserted.first_insert_id != check->snapshot_rows + 1)
+            check->valid = false;
+    }
+    return true;
+}
+
+static void build_insert_batch(char *sql, size_t capacity, size_t count) {
+    size_t used = (size_t)snprintf(sql, capacity, "INSERT INTO users(name,age) VALUES ");
+    for (size_t i = 0; i < count; ++i) {
+        int written = snprintf(sql + used, capacity - used, "%s('row_%zu',%zu)", i ? "," : "", i, i);
+        CHECK(written > 0 && (size_t)written < capacity - used);
+        used += (size_t)written;
+    }
+}
+
+static void test_select_snapshot_and_reentrant_insert(void) {
+    const char *queries[] = {
+        "SELECT * FROM users", "SELECT * FROM users WHERE id>=1", "SELECT * FROM users WHERE id=1"
+    };
+    char seed_sql[32768], insert_sql[32768];
+    build_insert_batch(seed_sql, sizeof(seed_sql), 700);
+    build_insert_batch(insert_sql, sizeof(insert_sql), 400);
+    for (size_t mode = 0; mode < 3; ++mode) {
+        char name[32], path[320];
+        snprintf(name, sizeof(name), "snapshot%zu", mode);
+        make_test_path(path, sizeof(path), name);
+        DbError error;
+        Db *db = db_open(path, false, &error); CHECK(db != NULL);
+        CHECK(run_sql(db, seed_sql, NULL).affected_rows == 700);
+        SnapshotCheck check = {db, insert_sql, 700, 0, false, true};
+        DbResult result;
+        CHECK(db_execute(db, queries[mode], insert_during_select, &check, &result, &error) == DB_OK);
+        CHECK(check.inserted && check.valid && check.count == (mode == 2 ? 1u : 700u));
+        CHECK(result.affected_rows == check.count);
+        CHECK(run_sql(db, "SELECT * FROM users", NULL).affected_rows == 1100);
+        CHECK(run_sql(db, "SELECT * FROM users WHERE id BETWEEN 250 AND 800 LIMIT 260", NULL).affected_rows == 260);
+        db_close(db);
+        db = db_open(path, false, &error); CHECK(db != NULL);
+        CHECK(run_sql(db, "SELECT * FROM users WHERE id>=1", NULL).affected_rows == 1100);
+        db_close(db);
+        remove_test_database(path);
+    }
+    puts("PASS snapshots: INSERT inside SELECT callback, scan/range/point stability, 256-row boundaries, split during range traversal");
+}
+
 int main(void) {
     CHECK(platform_create_directory("build"));
     snprintf(test_root, sizeof(test_root), "build/test-%ld", (long)process_id());
@@ -382,6 +444,7 @@ int main(void) {
     test_corruption();
     test_script();
     test_concurrency();
+    test_select_snapshot_and_reentrant_insert();
     CHECK(remove_directory(test_root) == 0);
     printf("ALL TESTS PASSED (%u assertions)\n", assertions);
     return 0;
