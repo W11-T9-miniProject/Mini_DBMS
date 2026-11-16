@@ -156,6 +156,7 @@ class ApiHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "MiniDB/1.0"
     sys_version = ""
+    disable_nagle_algorithm = True
 
     def __init__(self, request, client_address, server, *, accepted_at):
         self.accepted_at = accepted_at
@@ -172,6 +173,8 @@ class ApiHandler(BaseHTTPRequestHandler):
         # Exactly one request per TCP connection; idle keep-alive clients cannot
         # monopolize pool workers. No chunked transfer or pipelining is offered.
         self.close_connection = True
+        self.response_started = False
+        self.sql_started = False
         self.requestline, self.request_version, self.command = "", "HTTP/1.1", None
         try:
             self.raw_requestline = self.rfile.readline(4097)
@@ -185,12 +188,16 @@ class ApiHandler(BaseHTTPRequestHandler):
         except HeadersTooLarge as error:
             self.send_problem(431, "HEADERS_TOO_LARGE", str(error))
         except TimeoutError:
-            self.send_problem(408, "REQUEST_TIMEOUT", "Request input deadline expired; SQL was not executed")
+            if not self.response_started and not self.sql_started:
+                self.send_problem(408, "REQUEST_TIMEOUT", "Request input deadline expired; SQL was not executed")
+            # A send timeout after SQL execution has an unknown outcome to the
+            # client. Never claim that its INSERT was not executed.
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             pass
         except Exception:
             logging.exception("Unexpected HTTP request failure")
-            self.send_problem(500, "INTERNAL_ERROR", "Unexpected server failure")
+            if not self.response_started:
+                self.send_problem(500, "INTERNAL_ERROR", "Unexpected server failure")
         finally:
             self.close_connection = True
 
@@ -217,6 +224,7 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.connection.settimeout(self.server.settings.send_timeout)
         if self.request_version == "HTTP/0.9":
             self.request_version = "HTTP/1.1"
+        self.response_started = True
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -309,6 +317,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.send_problem(408, "REQUEST_TIMEOUT", "Request input deadline expired; SQL was not executed")
             return
         start = time.perf_counter()
+        self.sql_started = True
         try:
             result = self.server.engine.execute(sql, max_rows=self.server.settings.max_rows)
         except NativeError as error:
