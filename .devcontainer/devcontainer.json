@@ -1,0 +1,12 @@
+{
+  "name": "mini-dbms-dev",
+  "build": {"dockerfile": "Dockerfile"},
+  "remoteUser": "jungle",
+  "forwardPorts": [8091],
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-vscode.cpptools"],
+      "settings": {"terminal.integrated.defaultProfile.linux": "bash"}
+    }
+  }
+}
