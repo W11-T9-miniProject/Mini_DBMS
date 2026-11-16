@@ -1,0 +1,65 @@
+#ifndef MINI_DB_H
+#define MINI_DB_H
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#define DB_NAME_SIZE 64
+#define DB_EMAIL_SIZE 128
+#define DB_ERROR_SIZE 256
+
+typedef struct Db Db;
+
+typedef struct {
+    uint64_t id;
+    int32_t age;
+    char name[DB_NAME_SIZE];
+    char email[DB_EMAIL_SIZE];
+} DbRow;
+
+typedef enum { DB_OK, DB_SQL_ERROR, DB_IO_ERROR, DB_MEMORY_ERROR,
+               DB_CORRUPT, DB_BUSY, DB_CALLBACK_ERROR } DbStatus;
+
+typedef struct {
+    DbStatus code;
+    char message[DB_ERROR_SIZE];
+} DbError;
+
+typedef enum { DB_PLAN_INSERT, DB_PLAN_SCAN, DB_PLAN_INDEX_POINT,
+               DB_PLAN_INDEX_RANGE } DbPlan;
+
+typedef struct {
+    const char *columns[4];
+    size_t column_count;
+    uint64_t affected_rows;
+    uint64_t examined_rows;
+    uint64_t first_insert_id;
+    DbPlan plan;
+    bool explain;
+} DbResult;
+
+/* Row memory is borrowed and valid only during the callback.
+ * Called while a table read lock is held: do not reenter this Db.
+ * Return false to abort the query with DB_CALLBACK_ERROR. */
+typedef bool (*DbRowVisitor)(const DbRow *row, const DbResult *result, void *context);
+
+/* Opens directory/users.db. Only one process may open a directory at a time.
+ * Individual execute calls are safe across threads. close requires joined callers.
+ * sync_writes=true uses fsync/_commit before acknowledging an INSERT. */
+Db *db_open(const char *directory, bool sync_writes, DbError *error);
+void db_close(Db *db);
+
+/* Executes exactly one statement. INSERT accepts multiple VALUES tuples.
+ * SELECT streams matching rows, so it does not allocate a result-sized array. */
+DbStatus db_execute(Db *db, const char *sql, DbRowVisitor visitor,
+                    void *context, DbResult *result, DbError *error);
+
+/* Benchmark/test hook: identical query and parser, with index lookup disabled. */
+DbStatus db_execute_scan(Db *db, const char *sql, DbRowVisitor visitor,
+                         void *context, DbResult *result, DbError *error);
+
+const char *db_plan_name(DbPlan plan);
+const char *db_status_name(DbStatus status);
+
+#endif
