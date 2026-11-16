@@ -1,4 +1,4 @@
-param([switch]$Test)
+param([switch]$Test, [switch]$Sanitize)
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -19,20 +19,25 @@ $targets = @{
     db_tests = 'tests/test_main.c'
     db_bench = 'tools/benchmark.c'
 }
+if ($Sanitize) { $targets = @{ db_tests_asan = 'tests/test_main.c' } }
+$compilerFlags = @('/nologo', '/std:c11', '/W4', '/WX', '/Zi', '/D_CRT_SECURE_NO_WARNINGS')
+if ($Sanitize) { $compilerFlags += @('/O1', '/fsanitize=address') }
+else { $compilerFlags += '/O2' }
 foreach ($target in $targets.Keys) {
     $objectDirectory = Join-Path $repo "build/obj/$target"
     New-Item -ItemType Directory -Force -Path $objectDirectory | Out-Null
     Push-Location $objectDirectory
     try {
         $output = Join-Path $repo "build/$target.exe"
-        & cl.exe /nologo /std:c11 /W4 /WX /O2 /Zi /D_CRT_SECURE_NO_WARNINGS "/I$repo/include" "/I$repo/src" @core (Join-Path $repo $targets[$target]) "/Fe:$output" /link /INCREMENTAL:NO
+        & cl.exe @compilerFlags "/I$repo/include" "/I$repo/src" @core (Join-Path $repo $targets[$target]) "/Fe:$output" /link /INCREMENTAL:NO
         if ($LASTEXITCODE -ne 0) { throw "Build failed: $target" }
     } finally { Pop-Location }
 }
-if ($Test) {
+if ($Test -or $Sanitize) {
     Push-Location $repo
     try {
-        & (Join-Path $repo 'build/db_tests.exe')
+        $testExecutable = if ($Sanitize) { 'build/db_tests_asan.exe' } else { 'build/db_tests.exe' }
+        & (Join-Path $repo $testExecutable)
         if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }
     } finally { Pop-Location }
 }

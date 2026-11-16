@@ -1,0 +1,26 @@
+name: C engine tests
+
+on: [push, pull_request]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build with warnings as errors
+        run: make
+      - name: Unit and integration tests
+        run: make test
+      - name: Address and undefined behavior sanitizers
+        run: make sanitize
+      - name: CLI SQL file
+        run: ./build/mini_db --db build/cli-data --file examples/demo.sql
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: MSVC C11 build and tests
+        run: ./scripts/build.ps1 -Test
+      - name: CLI functional tests
+        run: ./scripts/test-cli.ps1

@@ -55,6 +55,19 @@ void db_close(Db *db) {
     free(db);
 }
 
+DbStatus db_get_stats(Db *db, DbStats *stats, DbError *error) {
+    if (!db || !stats) return db_error_set(error, DB_IO_ERROR, "Database and stats output are required");
+    platform_read_lock(&db->table_lock);
+    stats->row_count = db->storage.row_count;
+    stats->file_bytes = storage_row_offset(db->storage.row_count);
+    stats->index_height = db->index.height;
+    stats->index_nodes = db->index.node_count;
+    stats->index_memory_bytes = bptree_memory_bytes(&db->index);
+    platform_read_unlock(&db->table_lock);
+    if (error) memset(error, 0, sizeof(*error));
+    return DB_OK;
+}
+
 static DbPlan choose_select_plan(const Statement *statement, bool force_scan) {
     const Predicate *predicate = &statement->predicate;
     if (force_scan || !predicate->present || predicate->column != COLUMN_ID ||

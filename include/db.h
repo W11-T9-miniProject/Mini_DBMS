@@ -44,11 +44,20 @@ typedef struct {
  * Return false to abort the query with DB_CALLBACK_ERROR. */
 typedef bool (*DbRowVisitor)(const DbRow *row, const DbResult *result, void *context);
 
+typedef struct {
+    uint64_t row_count;
+    uint64_t file_bytes;
+    size_t index_height;
+    size_t index_nodes;
+    size_t index_memory_bytes;
+} DbStats;
+
 /* Opens directory/users.db. Only one process may open a directory at a time.
  * Individual execute calls are safe across threads. close requires joined callers.
  * sync_writes=true uses fsync/_commit before acknowledging an INSERT. */
 Db *db_open(const char *directory, bool sync_writes, DbError *error);
 void db_close(Db *db);
+DbStatus db_get_stats(Db *db, DbStats *stats, DbError *error);
 
 /* Executes exactly one statement. INSERT accepts multiple VALUES tuples.
  * SELECT streams matching rows, so it does not allocate a result-sized array. */

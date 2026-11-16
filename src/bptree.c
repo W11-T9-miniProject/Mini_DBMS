@@ -207,9 +207,7 @@ static Validation validate_node(const BptNode *node, size_t depth, size_t height
         Validation child = validate_node(node->children[i], depth + 1, height, false);
         if (!child.valid || !child.entries) { result.valid = false; return result; }
         if (i == 0) result.minimum = child.minimum;
-        else if (result.maximum >= child.minimum || node->keys[i - 1] != child.minimum ||
-                 result.last_leaf->next != node->children[i] /* checked below for internal child */) {
-            /* Internal children start at a subtree, not directly at a leaf. */
+        else {
             const BptNode *first = node->children[i];
             while (!first->leaf) first = first->children[0];
             if (result.maximum >= child.minimum || node->keys[i - 1] != child.minimum ||

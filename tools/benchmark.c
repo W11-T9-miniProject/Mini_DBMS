@@ -104,6 +104,8 @@ int main(int argc, char **argv) {
     db = db_open(argv[1], true, &error);
     if (!db) fail(error.message);
     double rebuild_seconds = platform_now() - start;
+    DbStats stats;
+    if (db_get_stats(db, &stats, &error) != DB_OK) fail(error.message);
     DbResult count_result = execute_checked(db, "SELECT * FROM users");
     if (count_result.affected_rows != total) fail("Reopened row count mismatch");
     double *indexed = calloc(queries, sizeof(double));
@@ -135,6 +137,8 @@ int main(int argc, char **argv) {
            (unsigned long long)total, queries, BATCH_SIZE);
     printf("insert_seconds=%.6f\nrebuild_seconds=%.6f\nfile_bytes=%llu\n",
            insert_seconds, rebuild_seconds, (unsigned long long)storage_row_offset(total));
+    printf("index_height=%zu\nindex_nodes=%zu\nindex_memory_bytes=%zu\n",
+           stats.index_height, stats.index_nodes, stats.index_memory_bytes);
     puts("cache=warm (OS cache is not dropped)\nquery,median_ms,p95_ms");
     report_latencies("id_index", indexed, queries);
     report_latencies("same_id_forced_scan", forced, queries);
