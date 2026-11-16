@@ -123,6 +123,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1 -Sanitize
 | 파일 | 재시작, 자동 ID 연속성, 빈 DB, 체크섬·헤더·잘린 레코드 오류 |
 | 실행 | projection, 계획 선택, 인덱스/스캔 결과 일치, LIMIT, 경계값 |
 | 동시성 | 4개 writer + 2개 reader, 800건 고유 ID·행 수·재시작 |
+| 스냅샷 | SELECT 콜백 중 400건 INSERT, 배치 경계·노드 분할 후에도 최초 조회 범위 유지 |
 | CLI | 실제 실행 파일을 이용한 SQL 파일 입력, 재실행, 오류 종료, 스캔 옵션 |
 
 테스트 DB는 `build/test-*`에 생성하고 테스트 성공 시 해당 테스트 파일만 제거합니다.
@@ -176,7 +177,12 @@ src/bptree.c       B+ 트리 검색, 삽입, 분할, 범위 순회
 src/platform.c     Windows/POSIX 파일·잠금·시간 처리
 tests/test_main.c  C 단위·통합·동시성 테스트
 tools/benchmark.c  SQL 기반 대량 생성과 검증 가능한 벤치마크
+tools/load_benchmark.c 동시 요청·락 대기·p95/p99 측정
 ```
+
+동시 부하 측정 방법과 수정 전후 비교는 [LOAD_TEST.md](docs/LOAD_TEST.md)에 있습니다.
+현재 SELECT는 공개된 행 수를 짧게 잠가 확보한 뒤, 위치 지정 읽기와 결과 콜백을 잠금 밖에서
+수행합니다. INSERT의 디스크 동기화 중에도 기존 행을 조회할 수 있습니다.
 
 **함수별 호출 흐름과 디버거 중단점 순서는 [ARCHITECTURE.md](docs/ARCHITECTURE.md)를 읽으세요.**
 

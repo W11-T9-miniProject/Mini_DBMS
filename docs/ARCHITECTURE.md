@@ -34,15 +34,18 @@ main
              │   ├─ next_token: 단어, 숫자, 문자열, 연산자 구분
              │   └─ parse_insert
              │       └─ parse_insert_tuple → parse_insert_value
-             ├─ platform_write_lock: 테이블 전체의 쓰기 잠금
+             ├─ platform_mutex_lock(writer_lock): 쓰기 요청끼리 직렬화
              ├─ execute_insert
              │   ├─ storage_append
              │   │   ├─ ID 부여: 기존 행 수 + 1
              │   │   ├─ encode_record: little-endian 직렬화 + 체크섬
              │   │   ├─ fwrite → fflush → platform_sync
              │   │   └─ 실패 시 rollback_failed_append
-             │   └─ bptree_insert(ID, 파일 오프셋)
-             ├─ platform_write_unlock
+             │   ├─ platform_write_lock(table_lock): 짧은 공개 구간
+             │   ├─ bptree_insert(ID, 파일 오프셋)
+             │   ├─ published_rows 갱신
+             │   └─ platform_write_unlock(table_lock)
+             ├─ platform_mutex_unlock(writer_lock)
              └─ sql_statement_destroy
 ```
 
@@ -50,8 +53,10 @@ main
 타입 오류가 있으면 앞의 튜플도 저장되지 않는다. 여러 INSERT 문장으로 된 파일은 문장별로
 실행하며, 뒤 문장이 실패해도 앞에서 성공한 문장은 유지한다.
 
-파일 기록 후 인덱스를 갱신하는 동안에도 쓰기 잠금을 유지하므로 다른 쿼리가 중간 상태를
-관찰할 수 없다. 디스크 기록은 성공했지만 인덱스 메모리 할당에 실패하면 엔진을 사용 불가로
+디스크 기록 중에는 기존의 공개된 행을 계속 읽을 수 있다. SELECT가 보는 행 수는
+`published_rows`이며, 파일 기록·동기화와 인덱스 등록이 끝난 뒤 테이블 잠금 안에서 갱신한다.
+따라서 아직 인덱스에 등록되지 않은 새 행을 스캔으로 먼저 관찰하지 않는다.
+디스크 기록은 성공했지만 인덱스 메모리 할당에 실패하면 엔진을 사용 불가로
 표시하고 오류를 반환한다. 재시작하면 이미 저장된 행으로 인덱스를 재구축한다. 이 오류에서
 INSERT를 무조건 재시도하면 중복 데이터가 생길 수 있으므로 오류 메시지를 확인해야 한다.
 
@@ -60,11 +65,11 @@ INSERT를 무조건 재시도하면 중복 데이터가 생길 수 있으므로 
 ```text
 db_execute → execute_sql
  ├─ sql_parse → parse_select → parse_predicate
- ├─ platform_read_lock
  └─ execute_select
      ├─ choose_select_plan → INDEX LOOKUP
+     ├─ acquire_select_lock → 공개된 행 수와 ID 오프셋 확보
+     ├─ release_select_lock
      └─ execute_index_lookup
-         ├─ bptree_find: 루트에서 리프까지 이진 탐색
          ├─ storage_read: 해당 오프셋의 208바이트 읽기
          │   └─ decode_record: 체크섬과 문자열 경계 검증
          └─ visit_matching_row
@@ -75,11 +80,16 @@ db_execute → execute_sql
 `id = 42`에서 ID를 파일 행 번호로 직접 계산하지 않는다. 실제 B+ 트리가 반환한
 오프셋으로 조회한다. 파일이 고정 길이인 것과 무관하게 인덱스가 조회 경로를 결정한다.
 
-`WHERE name='Alice'`는 `execute_table_scan()`으로 모든 행을 확인한다.
+`WHERE name='Alice'`는 `execute_table_scan()`으로 SELECT 시작 시 공개된 행을 확인한다.
+256개 레코드씩 위치 지정 읽기를 수행하며 조건을 평가한다.
 `WHERE id BETWEEN 10 AND 20`은 `execute_index_range()`에서
 `bptree_lower_bound()`로 첫 리프를 찾고 `bptree_cursor_next()`로 연결된 리프를 순회한다.
+인덱스 잠금 안에서 최대 256개 오프셋을 복사한 뒤 잠금을 풀고 읽는다.
+다음 배치에서는 마지막 키 다음부터 다시 탐색한다. 잠금 밖으로 노드 포인터나 cursor를
+보관하면 다른 스레드의 노드 분할과 충돌하므로 오프셋만 복사한다.
 ID의 `=`, `<`, `<=`, `>`, `>=`, `BETWEEN`은 인덱스를 사용하고 `!=`는 전체 스캔한다.
-일치 결과가 LIMIT에 도달하면 중단한다. EXPLAIN은 계획만 반환하고 행은 읽지 않는다.
+일치 결과가 LIMIT에 도달하면 중단한다. `examined_rows`는 조건을 평가한 행 수이며,
+배치에서 미리 읽은 행 수와 다를 수 있다. EXPLAIN은 계획만 반환하고 행은 읽지 않는다.
 
 ## 4. B+ 트리 삽입 추적
 
@@ -145,12 +155,17 @@ WAL과 트랜잭션은 없다. 전원 장애 중 튜플 일부만 기록될 수 
 ## 6. 스레드 안전성
 
 - 파싱은 호출별 로컬 상태로 수행한다.
-- INSERT는 테이블 쓰기 잠금 안에서 ID 부여 → 파일 기록 → 인덱스 갱신을 수행한다.
-- SELECT는 읽기 잠금 안에서 실행되어 해당 문장의 일관된 스냅샷을 본다.
-- 읽기 스레드끼리는 B+ 트리를 공유한다. FILE 커서는 별도 mutex로 보호한다.
-- 연속 스캔은 현재 커서가 다음 오프셋과 같으면 seek를 생략해 stdio 버퍼를 활용한다.
-- 여러 독자가 서로 다른 위치를 읽으면 커서 이동이 늘고, 파일 읽기는 mutex로 직렬화된다.
-- 행 콜백 안에서 동일 Db에 다시 쿼리하거나 db_close를 호출하면 안 된다.
+- INSERT는 writer mutex 안에서 ID 부여·append·동기화를 수행한다. INSERT끼리는 직렬화된다.
+- 테이블 쓰기 잠금은 B+ 트리 갱신과 published_rows 공개 구간에서만 사용한다.
+- SELECT는 짧은 테이블 읽기 잠금으로 published_rows 또는 오프셋을 확보한다.
+- 공개된 레코드는 수정·삭제하지 않으므로 잠금을 푼 뒤 파일을 읽어도 기존 값은 바뀌지 않는다.
+- 이후 INSERT된 ID는 최초 published_rows보다 크므로 진행 중 SELECT에서 제외된다.
+- 공유 FILE 읽기 커서를 사용하지 않는다. POSIX는 pread, Windows는 독립 OVERLAPPED/event를 사용한다.
+- 디스크 읽기와 행 콜백은 테이블 잠금 밖에서 수행한다. 콜백에서 같은 Db에 INSERT할 수 있다.
+- 범위 조회는 노드 포인터를 잠금 밖에 보관하지 않고, 오프셋만 배치로 복사한다.
+- 이 방식은 append-only 조건에 의존한다. UPDATE/DELETE를 추가하려면 별도의 버전·수명 관리가 필요하다.
+- 일반적인 MVCC나 다중 문장 트랜잭션을 제공하는 구현은 아니다.
+- 행 콜백에서 db_close를 호출하면 안 된다.
 - db_close 전에 호출자 스레드를 모두 종료해야 한다.
 - OS 잠금의 공정성이나 CPU 코어 수에 비례한 성능 향상은 보장하지 않는다.
 

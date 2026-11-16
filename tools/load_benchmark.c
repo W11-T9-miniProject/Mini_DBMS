@@ -339,8 +339,8 @@ static uint64_t positive_argument(const char *text, uint64_t maximum) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2 || argc > 7) {
-        fputs("Usage: db_load NEW_DIRECTORY [rows=100000] [requests=2000] [max_threads=16] [repeats=3] [sync=1]\n", stderr);
+    if (argc < 2 || argc > 8) {
+        fputs("Usage: db_load NEW_DIRECTORY [rows=100000] [requests=2000] [max_threads=16] [repeats=3] [sync=1] [workload=all]\n", stderr);
         return 2;
     }
     if (strlen(argv[1]) > 800) fail("Benchmark path too long");
@@ -351,6 +351,12 @@ int main(int argc, char **argv) {
     bool sync = argc <= 6 || strcmp(argv[6], "1") == 0;
     if (argc > 6 && strcmp(argv[6], "0") != 0 && strcmp(argv[6], "1") != 0) fail("sync must be 0 or 1");
     if (max_threads > requests) fail("requests must be >= max_threads");
+    int only_workload = -1;
+    if (argc > 7 && strcmp(argv[7], "all") != 0) {
+        for (int i = LOAD_POINT; i <= LOAD_SLOW; ++i)
+            if (strcmp(argv[7], workload_name((Workload)i)) == 0) only_workload = i;
+        if (only_workload < 0) fail("workload must be all, point, mixed90_10, scan_mix or slow_callback");
+    }
     /* A new root is mandatory: never overwrite a prior case or user data. */
 #ifdef _WIN32
     if (!CreateDirectoryA(argv[1], NULL)) fail("Use a new load directory whose parent exists");
@@ -365,6 +371,7 @@ int main(int argc, char **argv) {
     for (unsigned repeat = 1; repeat <= repeats; ++repeat)
         for (size_t threads = 1; threads <= max_threads; threads *= 2)
             for (int workload = LOAD_POINT; workload <= LOAD_SLOW; ++workload)
-                run_case(argv[1], (Workload)workload, threads, requests, rows, sync, repeat);
+                if (only_workload < 0 || workload == only_workload)
+                    run_case(argv[1], (Workload)workload, threads, requests, rows, sync, repeat);
     return 0;
 }
