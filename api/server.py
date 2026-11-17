@@ -98,8 +98,15 @@ def send_connection_error(connection: socket.socket, status: int, code: str, mes
 
 
 class ApiServer(HTTPServer):
-    allow_reuse_address = True
+    # Windows SO_REUSEADDR can admit a second listener on an occupied port.
+    # Fail clearly instead of serving requests nondeterministically elsewhere.
+    allow_reuse_address = os.name != "nt"
     request_queue_size = 128  # OS listen backlog, separate from the worker queue.
+
+    def server_bind(self):
+        if os.name == "nt":
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
     def __init__(self, address: tuple[str, int], engine: NativeEngine, settings: Settings):
         self.engine = engine
