@@ -1,0 +1,7 @@
+id INTEGER
+name TEXT
+category TEXT
+price INTEGER
+kind TEXT
+color TEXT
+cache_ttl INTEGER
