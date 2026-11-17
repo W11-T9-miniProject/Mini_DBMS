@@ -1,12 +1,9 @@
 #include "db.h"
 #include "db_script.h"
+#include "platform.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#endif
 
 typedef struct {
     Db *db;
@@ -98,7 +95,7 @@ static int run_cli(int argc, char **argv) {
     if (sql && file_path) { fputs("Use either --sql or --file\n", stderr); return 2; }
     FILE *input = stdin;
     if (file_path) {
-        input = fopen(file_path, "rb");
+        input = platform_open_file(file_path, "rb");
         if (!input) { perror(file_path); return 1; }
     }
     DbError error;

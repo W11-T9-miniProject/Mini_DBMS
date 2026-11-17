@@ -1,14 +1,16 @@
 from concurrent.futures import ThreadPoolExecutor
+import http.client
 from pathlib import Path
 import socket
 import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from api.native import NativeEngine
 from api.pool import BoundedWorkerPool
-from api.server import ApiServer, Settings
+from api.server import ApiHandler, ApiServer, Settings
 from api_support import ServerProcess, raw_request, request
 
 
@@ -193,8 +195,54 @@ class RealHttpTests(unittest.TestCase):
             response.read()
         self.assertEqual(request(self.server.port, "GET", "/health")[0], 200)
 
+    def test_absolute_deadline_is_not_reset_by_trickled_bytes(self):
+        self.start("--workers", "1", "--request-timeout", "0.2")
+        with socket.create_connection(("127.0.0.1", self.server.port), timeout=3) as connection:
+            connection.sendall(b"POST /query HTTP/1.1\r\nHost: localhost\r\nX-Slow: ")
+            stop = threading.Event()
+            def trickle():
+                while not stop.wait(0.03):
+                    try:
+                        connection.sendall(b"x")
+                    except OSError:
+                        return
+            sender = threading.Thread(target=trickle)
+            sender.start()
+            try:
+                response = http.client.HTTPResponse(connection)
+                response.begin()
+                self.assertEqual(response.status, 408)
+                response.read()
+            finally:
+                stop.set()
+                sender.join(2)
+        self.assertEqual(request(self.server.port, "GET", "/health")[0], 200)
+
 
 class ServerLifecycleTests(unittest.TestCase):
+    def test_send_timeout_does_not_claim_insert_was_not_executed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with NativeEngine(Path(directory) / "database") as engine:
+                server = ApiServer(("127.0.0.1", 0), engine, Settings())
+                acceptor = threading.Thread(target=server.serve_until_stopped)
+                original = ApiHandler.send_json
+                def fail_send(handler, status, payload, **options):
+                    if handler.path == "/query" and status == 200:
+                        handler.response_started = True
+                        raise TimeoutError("Injected response-send timeout")
+                    return original(handler, status, payload, **options)
+                acceptor.start()
+                try:
+                    with patch.object(ApiHandler, "send_json", fail_send):
+                        with self.assertRaises(http.client.RemoteDisconnected):
+                            request(server.server_port, document={"sql": "INSERT INTO users(name,age) VALUES('saved',1)"})
+                    self.assertEqual(engine.stats()["row_count"], 1)
+                    self.assertEqual(engine.execute("SELECT name FROM users WHERE id=1")["rows"], [["saved"]])
+                finally:
+                    server.request_stop()
+                    acceptor.join(3)
+                    server.server_close()
+
     def test_queue_saturation_and_graceful_drain(self):
         class BlockingEngine:
             def __init__(self):

@@ -2,6 +2,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
+import sys
 
 from api.native import NativeEngine, NativeError, default_library_path
 
@@ -76,6 +78,23 @@ class NativeBridgeTests(unittest.TestCase):
         with NativeEngine(self.path, default_library_path()) as engine:
             self.assertEqual(engine._library.db_abi_version(), 1)
             self.assertEqual(engine._library.db_abi_sizeof(999), 0)
+
+    def test_cli_and_api_use_same_file_and_utf8_paths(self):
+        executable = default_library_path().with_name("mini_db.exe" if sys.platform == "win32" else "mini_db")
+        if not executable.exists():
+            self.skipTest("Build CLI to run the interoperability check")
+        sql = "INSERT INTO users(name,age) VALUES('같은 엔진',25)"
+        completed = subprocess.run([str(executable), "--db", str(self.path), "--sql", sql],
+                                   capture_output=True, encoding="utf-8", timeout=10)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        source = self.path.parent / "입력.sql"
+        source.write_text("INSERT INTO users(name,age) VALUES('파일 입력',26);", encoding="utf-8")
+        completed = subprocess.run([str(executable), "--db", str(self.path), "--file", str(source)],
+                                   capture_output=True, encoding="utf-8", timeout=10)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        with NativeEngine(self.path) as engine:
+            self.assertEqual(engine.execute("SELECT name FROM users WHERE id=1")["rows"], [["같은 엔진"]])
+            self.assertEqual(engine.execute("SELECT name FROM users WHERE id=2")["rows"], [["파일 입력"]])
 
 
 if __name__ == "__main__":

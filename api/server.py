@@ -23,6 +23,17 @@ from .native import NativeEngine, NativeError
 from .pool import BoundedWorkerPool
 
 
+WEB_DIRECTORY = Path(__file__).resolve().parents[1] / "web"
+# Explicit routes only: URL input never becomes an arbitrary filesystem path.
+STATIC_ASSETS = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/assets/studio.css": ("studio.css", "text/css; charset=utf-8"),
+    "/assets/studio.js": ("studio.js", "text/javascript; charset=utf-8"),
+    "/favicon.svg": ("favicon.svg", "image/svg+xml"),
+}
+
+
 @dataclass(frozen=True)
 class Settings:
     workers: int = 4
@@ -68,10 +79,9 @@ def send_connection_error(connection: socket.socket, status: int, code: str, mes
         connection.settimeout(0.05)
         connection.sendall(headers + body)
         # Closing with unread request bytes can send RST and erase the HTTP
-        # rejection on Windows. Half-close output, then discard a bounded
-        # amount of input while the client receives the error and closes.
-        connection.shutdown(socket.SHUT_WR)
-        drain_deadline = time.monotonic() + 0.05
+        # rejection on Windows. Let the peer consume the framed response and
+        # finish sending before half-closing; an early FIN races its body send.
+        drain_deadline = time.monotonic() + 0.2
         discarded = 0
         while discarded < 65536:
             remaining = drain_deadline - time.monotonic()
@@ -82,6 +92,7 @@ def send_connection_error(connection: socket.socket, status: int, code: str, mes
             if not chunk:
                 break
             discarded += len(chunk)
+        connection.shutdown(socket.SHUT_WR)
     except OSError:
         pass  # A peer that cannot read the rejection is simply disconnected.
 
@@ -220,13 +231,16 @@ class ApiHandler(BaseHTTPRequestHandler):
         if len(body) > self.server.settings.max_response_bytes:
             status = 413
             body = json.dumps(problem("RESULT_TOO_LARGE", "Response exceeds byte limit; use SQL LIMIT")).encode("utf-8")
+        self.send_bytes(status, body, "application/json; charset=utf-8", extra_headers=extra_headers)
+
+    def send_bytes(self, status, body, content_type, *, extra_headers=None):
         # Send has a separate timeout. It does not hold engine or queue locks.
         self.connection.settimeout(self.server.settings.send_timeout)
         if self.request_version == "HTTP/0.9":
             self.request_version = "HTTP/1.1"
         self.response_started = True
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -236,6 +250,20 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    def _serve_studio_asset(self):
+        filename, content_type = STATIC_ASSETS[self.path]
+        try:
+            body = (WEB_DIRECTORY / filename).read_bytes()
+        except OSError:
+            self.send_problem(500, "ASSET_MISSING", "Studio assets are missing from the web directory")
+            return
+        self.send_bytes(200, body, content_type, extra_headers={
+            "Cache-Control": "no-cache",
+            "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; "
+                "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+                "base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+        })
 
     def send_problem(self, status, code, message, *, extra_headers=None):
         self.send_json(status, problem(code, message), extra_headers=extra_headers)
@@ -255,6 +283,13 @@ class ApiHandler(BaseHTTPRequestHandler):
     def _dispatch(self):
         if self.request_version not in ("HTTP/1.0", "HTTP/1.1"):
             self.send_problem(505, "HTTP_VERSION", "Only HTTP/1.0 and HTTP/1.1 are supported")
+            return
+        if self.path in STATIC_ASSETS:
+            if self.command not in ("GET", "HEAD"):
+                self.send_problem(405, "METHOD_NOT_ALLOWED", "Static assets support GET and HEAD",
+                                  extra_headers={"Allow": "GET, HEAD"})
+            else:
+                self._serve_studio_asset()
             return
         routes = {"/health": "GET", "/stats": "GET", "/query": "POST"}
         if self.path not in routes:
@@ -368,7 +403,7 @@ def main(argv=None):
                                   "port": server.server_port, "workers": settings.workers}), flush=True)
                 server.serve_until_stopped()
     except (NativeError, OSError, AttributeError) as error:
-        logging.error("Server could not start: %s", error)
+        logging.error("Server could not start: %s", error, exc_info=True)
         return 1
     return 0
 

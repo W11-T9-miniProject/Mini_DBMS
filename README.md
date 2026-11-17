@@ -1,7 +1,7 @@
 # Mini DBMS — C11
 
-직접 구현한 SQL 파서와 파일 저장소, 메모리 기반 B+ 트리를 사용하는 **DB 엔진 + CLI**입니다.
-현재 범위는 과제 Phase 1·2이며, API 서버와 웹 화면은 포함하지 않습니다.
+직접 구현한 SQL 파서와 파일 저장소, 메모리 기반 B+ 트리를 사용하는 **C DB 엔진 + CLI + Python HTTP API**입니다.
+Phase 1·2 엔진을 공유 라이브러리로 재사용하고, Phase 3은 고정 크기 Thread Pool로 병렬 처리합니다.
 외부 DB·SQL 파서·서드파티 라이브러리를 사용하지 않습니다.
 
 ## 빠른 실행
@@ -36,6 +36,57 @@ ctest --test-dir build/cmake -C Release --output-on-failure
 DB 디렉터리는 없으면 생성합니다. 부모 디렉터리는 존재해야 합니다. 같은 DB를 두 프로세스가
 동시에 여는 것은 거부하며, 여러 스레드는 하나의 Db 핸들을 공유할 수 있습니다.
 예제 파일을 다시 실행하면 행이 추가됩니다. 초기 상태를 보려면 새 DB 디렉터리를 지정하세요.
+
+## Phase 3: HTTP API
+
+Python 3.10 이상과 기본 빌드 결과가 필요합니다. pip 패키지 설치는 없습니다.
+Windows 기본 빌드는 `build/minidb.dll`, Linux/macOS make는 `build/libminidb.so` 또는
+`build/libminidb.dylib`도 생성합니다.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serve-api.ps1 -Db data -Workers 4 -QueueSize 64 -Port 8080
+```
+
+```sh
+make
+python3 -m api.server --db data --workers 4 --queue-size 64 --port 8080
+```
+
+별도 터미널에서 예제 클라이언트를 실행합니다.
+
+```sh
+python examples/api_client.py
+curl http://127.0.0.1:8080/health
+curl -X POST http://127.0.0.1:8080/query -H 'Content-Type: application/json' -d '{"sql":"SELECT * FROM users WHERE id=1"}'
+```
+
+Windows PowerShell의 curl은 `curl.exe`를 사용하거나 다음처럼 요청할 수 있습니다.
+
+```powershell
+$body = @{ sql = 'SELECT * FROM users WHERE id=1' } | ConvertTo-Json
+Invoke-RestMethod http://127.0.0.1:8080/query -Method Post -ContentType 'application/json' -Body $body
+```
+
+외부 장비에서 접속하려면 `--host 0.0.0.0`으로 바인딩하고 해당 컴퓨터의 IP를 사용합니다.
+`MINIDB_API_TOKEN` 환경 변수를 지정하면 `/query`와 `/stats`에 Bearer 인증을 적용합니다.
+기본 바인딩은 `127.0.0.1`입니다. HTTPS·다중 사용자 권한은 제공하지 않습니다.
+
+- `POST /query`: `{"sql":"..."}` 한 문장 실행, JSON 응답.
+- `GET /health`: 서버 생존 확인.
+- `GET /stats`: 엔진 행 수·인덱스 통계와 worker·queue 상태.
+- 큐 포화 `503`, 입력 기한 초과 `408`, SQL 오류 `422`, 결과 제한 초과 `413`.
+- 기본 입력 최대 64 KiB, 결과 최대 1,000행·1 MiB. 큰 SELECT에는 LIMIT를 사용하세요.
+- Ctrl+C 시 수신을 중단하고 이미 받은 작업의 종료를 기다린 뒤 엔진을 닫습니다.
+- CMake 빌드 등 라이브러리 경로가 다르면 `--library 경로`를 지정합니다.
+
+```sh
+python -m unittest discover -s tests -p 'test_api*.py' -v
+python tools/http_benchmark.py build/my-http-load --rows 10000 --requests 200 --repeats 3 --output build/http-results.json
+```
+
+요청 한 건의 함수 호출 순서, Thread Pool·큐·ctypes·GIL 설명, 오류 정책과 실제 검증 결과는
+**[API 설계 문서](docs/API_SERVER.md)**를 참고하세요.
 
 ## 지원 SQL
 
@@ -167,6 +218,7 @@ B+ 트리 높이·노드 수·노드 메모리 추정치, 파일 크기, 삽입 
 
 ```text
 include/db.h       엔진 공개 API: open → execute → close
+src/abi.c          C/Python ABI 버전·구조체 크기 확인
 include/db_script.h SQL 파일 스트리밍 API
 src/main.c         CLI 인자, CSV 출력
 src/script.c       따옴표·주석을 구분하는 SQL 파일 분리
@@ -178,6 +230,11 @@ src/platform.c     Windows/POSIX 파일·잠금·시간 처리
 tests/test_main.c  C 단위·통합·동시성 테스트
 tools/benchmark.c  SQL 기반 대량 생성과 검증 가능한 벤치마크
 tools/load_benchmark.c 동시 요청·락 대기·p95/p99 측정
+api/native.py      ctypes 공유 라이브러리 연결과 엔진 수명 관리
+api/pool.py        고정 worker + 제한 큐
+api/server.py      HTTP 검증·라우팅·JSON 응답
+api/http_io.py     입력 크기·절대 기한 제한
+tools/http_benchmark.py 실제 HTTP 부하·재시작 검증
 ```
 
 동시 부하 측정 방법과 수정 전후 비교는 [LOAD_TEST.md](docs/LOAD_TEST.md)에 있습니다.

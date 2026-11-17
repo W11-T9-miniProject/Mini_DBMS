@@ -63,7 +63,9 @@ def run_case(root: Path, seed_rows: int, requests: int, clients: int, workload: 
                 raise RuntimeError("HTTP SELECT returned incorrect data or plan")
             return {"status": status, "latency_ms": elapsed, "request": number,
                     "insert_id": body["first_insert_id"] if writing else None,
-                    "worker": headers["X-Worker-Name"]}
+                    "worker": headers["X-Worker-Name"],
+                    "execution_ms": body["request"]["execution_ms"],
+                    "queue_wait_ms": body["request"]["queue_wait_ms"]}
 
         start = time.perf_counter()
         with ThreadPoolExecutor(max_workers=clients) as pool:
@@ -100,6 +102,8 @@ def run_case(root: Path, seed_rows: int, requests: int, clients: int, workload: 
             "p50_ms": percentile(latencies, 50), "p95_ms": percentile(latencies, 95),
             "p99_ms": percentile(latencies, 99),
             "success_p95_ms": percentile(success_latencies, 95) if success_latencies else None,
+            "execution_p95_ms": percentile([item["execution_ms"] for item in successes], 95) if successes else None,
+            "queue_wait_p95_ms": percentile([item["queue_wait_ms"] for item in successes], 95) if successes else None,
             "worker_names": sorted({item["worker"] for item in successes}),
             "peak_active": stats["pool"]["peak_active"], "restart_verified": True}
 
@@ -108,7 +112,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path, help="new directory; parent must exist")
     parser.add_argument("--rows", type=int, default=10000)
-    parser.add_argument("--requests", type=int, default=1000)
+    parser.add_argument("--requests", type=int, default=500)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -119,17 +123,22 @@ def main():
     report = {"environment": {"platform": platform.platform(), "python": platform.python_version()},
               "seed_rows": args.rows, "sync_writes": True, "closed_loop": True,
               "connection_per_request": True, "cases": []}
+    def save_progress():
+        if args.output:
+            args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for repeat in range(1, args.repeats + 1):
         for workload in ("point", "mixed"):
             for clients in (1, 8, 32):
                 result = run_case(args.directory, args.rows, args.requests, clients, workload, 4, 64, repeat)
                 report["cases"].append(result)
+                save_progress()
                 print(f"PASS {workload} clients={clients} repeat={repeat} "
                       f"successes/s={result['successes_per_second']:.1f} p95={result['p95_ms']:.2f}ms", file=sys.stderr)
         result = run_case(args.directory, args.rows, args.requests, 64, "overload", 2, 2, repeat)
         if not result["rejected_503"]:
             raise RuntimeError("Overload case did not exercise admission rejection")
         report["cases"].append(result)
+        save_progress()
         print(f"PASS overload repeat={repeat}: {result['successes']} completed, {result['rejected_503']} rejected", file=sys.stderr)
     report["correctness"] = "PASS"
     encoded = json.dumps(report, ensure_ascii=False, indent=2)
