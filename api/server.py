@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import hmac
@@ -381,12 +382,26 @@ class ApiHandler(BaseHTTPRequestHandler):
         self.send_json(200, result)
 
 
+def bind_api_server(host, port, engine, settings, *, auto_port=False):
+    """Use the requested port, or an OS-assigned port on an allowed conflict."""
+    try:
+        return ApiServer((host, port), engine, settings)
+    except OSError as error:
+        occupied = error.errno == errno.EADDRINUSE or getattr(error, "winerror", None) == 10048
+        if not auto_port or port == 0 or not occupied:
+            raise
+        logging.warning("Port %s is occupied; choosing an available port", port)
+        return ApiServer((host, 0), engine, settings)
+
+
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description="Python HTTP API + shared C mini DBMS")
     parser.add_argument("--db", default="data")
     parser.add_argument("--library", type=Path)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--auto-port", action="store_true",
+                        help="Choose an available port if the requested port is occupied")
     for name in ("workers", "queue_size", "max_body_bytes", "max_rows", "max_response_bytes"):
         parser.add_argument("--" + name.replace("_", "-"), type=int, default=getattr(Settings(), name))
     for name in ("request_timeout", "send_timeout"):
@@ -409,13 +424,14 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
         with NativeEngine(args.db, args.library, sync_writes=not args.no_sync) as engine:
-            with ApiServer((args.host, args.port), engine, settings) as server:
+            with bind_api_server(args.host, args.port, engine, settings, auto_port=args.auto_port) as server:
                 def stop(_signum, _frame):
                     server.request_stop()
                 signal.signal(signal.SIGINT, stop)
                 signal.signal(signal.SIGTERM, stop)
                 print(json.dumps({"event": "ready", "host": server.server_address[0],
-                                  "port": server.server_port, "workers": settings.workers}), flush=True)
+                                  "port": server.server_port, "workers": settings.workers,
+                                  "url": f"http://{args.host}:{server.server_port}/"}), flush=True)
                 server.serve_until_stopped()
     except (NativeError, OSError, AttributeError) as error:
         logging.error("Server could not start: %s", error, exc_info=True)

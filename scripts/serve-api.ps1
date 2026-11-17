@@ -4,7 +4,8 @@ param(
     [int]$Workers = 4,
     [int]$QueueSize = 64,
     [string]$HostName = '127.0.0.1',
-    [string]$PythonPath
+    [string]$PythonPath,
+    [switch]$StrictPort
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -22,7 +23,10 @@ if (!(Test-Path -LiteralPath (Join-Path $repo 'build/minidb.dll'))) {
 }
 Push-Location $repo
 try {
-    & $PythonPath -m api.server --db $Db --host $HostName --port $Port --workers $Workers --queue-size $QueueSize
+    $serverArguments = @('-m', 'api.server', '--db', $Db, '--host', $HostName,
+                         '--port', $Port, '--workers', $Workers, '--queue-size', $QueueSize)
+    if (!$StrictPort) { $serverArguments += '--auto-port' }
+    & $PythonPath @serverArguments
     $result = $LASTEXITCODE
 } finally { Pop-Location }
 exit $result

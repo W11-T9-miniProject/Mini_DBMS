@@ -12,10 +12,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serve-api.ps1 -Db da
 ```
 
 ```sh
-python3 -m api.server --db data --port 8080
+python3 -m api.server --db data --port 8080 --auto-port
 ```
 
-브라우저 주소: **http://127.0.0.1:8080/**
+브라우저에서는 실행 로그의 `ready` 항목에 표시된 **`url` 주소**를 연다.
+8080이 비어 있으면 http://127.0.0.1:8080/ 이고, 사용 중이면 빈 포트를 자동으로 선택한다.
+PowerShell 스크립트는 자동 선택이 기본이다. 고정 포트가 필요하면 `-StrictPort`를 지정한다.
+다른 프로그램의 서버를 종료하거나 기존 포트를 공유하지 않는다.
 
 web/index.html을 파일로 직접 여는 대신 위 서버 주소를 사용해야 한다.
 서버와 웹페이지가 같은 출처이므로 별도 개발 서버·프록시·CORS 설정이 필요 없다.
