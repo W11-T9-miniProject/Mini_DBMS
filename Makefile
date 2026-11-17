@@ -3,7 +3,7 @@ CPPFLAGS = -D_POSIX_C_SOURCE=200809L -D_FILE_OFFSET_BITS=64 -Iinclude
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -Werror -g -pthread
 WRAPS = -Wl,--wrap=calloc -Wl,--wrap=pwrite64 -Wl,--wrap=fsync
 
-.PHONY: test sanitize storage-demo parser-test cli benchmark server http-test http-sanitize
+.PHONY: test sanitize storage-demo parser-test cli benchmark server http-test http-sanitize presentation-test presentation-sanitize
 .DEFAULT_GOAL := test
 
 cli: build/mini-dbms
@@ -126,3 +126,9 @@ build/test_pool: tests/test_pool.c src/pool.c include/pool.h Makefile | build
 
 build/test_pool_sanitize: tests/test_pool.c src/pool.c include/pool.h Makefile | build
 	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_pool.c src/pool.c -Wl,--wrap=calloc -Wl,--wrap=pthread_create -o $@
+
+presentation-test: build/benchmark build/mini-dbms-server
+	python3 tests/test_presentation_demo.py
+
+presentation-sanitize: build/benchmark-sanitize build/mini-dbms-server-sanitize
+	MINI_DBMS_BENCHMARK=build/benchmark-sanitize MINI_DBMS_SERVER=build/mini-dbms-server-sanitize ASAN_OPTIONS=detect_leaks=1 python3 tests/test_presentation_demo.py
