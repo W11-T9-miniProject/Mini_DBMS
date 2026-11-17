@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="450" viewBox="0 0 1200 450" role="img" aria-labelledby="title desc">
+<title id="title">같은 기록 한 건을 찾을 때 전체 탐색과 B+ 트리가 읽는 기록 수의 차이</title><desc id="desc">전체 탐색은 파일 기록 백만 건을 읽는다. B+ 트리는 RAM에서 ID에 대응하는 파일 위치를 찾아 파일 기록 한 건만 읽는다. Phase 2 실측 중앙값은 각각 596.557밀리초와 0.003밀리초다.</desc>
+<rect width="1200" height="450" rx="14" fill="#f6f8f5"/>
+<g font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans CJK KR,sans-serif" fill="#18382d">
+<text x="42" y="52" font-size="32" font-weight="700">같은 기록 1건, 읽어야 하는 양은 다릅니다</text>
+<text x="42" y="90" font-size="23" fill="#4c665b">같은 행을 ID 인덱스와 고유하게 생성한 event_code 조건으로 검색했습니다.</text>
+<rect x="42" y="119" width="540" height="272" rx="10" fill="#fff" stroke="#c2cec5"/>
+<rect x="618" y="119" width="540" height="272" rx="10" fill="#e3f1e9" stroke="#81aa94"/>
+<text x="68" y="163" font-size="28" font-weight="700">전체 탐색</text><text x="644" y="163" font-size="28" font-weight="700">B+ 트리 인덱스</text>
+<text x="68" y="207" font-size="24">기록 1 → 2 → 3 → … → 100만</text><text x="644" y="207" font-size="24">ID → RAM 인덱스 → 파일 위치</text>
+<text x="68" y="285" font-size="62" font-weight="700">1,000,000</text><text x="644" y="285" font-size="62" font-weight="700">1</text>
+<text x="68" y="323" font-size="25">건의 파일 기록을 읽음</text><text x="644" y="323" font-size="25">건의 파일 기록만 읽음</text>
+<text x="68" y="368" font-size="26">중앙값 596.557 ms</text><text x="644" y="368" font-size="26">중앙값 0.003 ms</text>
+<text x="42" y="426" font-size="20" fill="#4c665b">Phase 2 실측 · 9쌍 · 예열된 OS 캐시 · 시작·파싱·출력 제외 · HTTP 왕복 시간과 다릅니다.</text>
+</g></svg>

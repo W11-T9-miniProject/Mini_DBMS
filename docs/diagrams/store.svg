@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="370" viewBox="0 0 1200 370" role="img" aria-labelledby="title desc">
+<title id="title">음악 앱의 저장·조회 요청을 처리하는 미니 DBMS</title><desc id="desc">음악 재생 사건이 SQL 요청으로 엔진에 전달되고, 엔진이 명령을 해석해 실제 기록을 디스크 파일에 저장하거나 읽는다.</desc>
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#547065"/></marker></defs>
+<rect width="1200" height="370" rx="14" fill="#f6f8f5"/>
+<g font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans CJK KR,sans-serif" fill="#18382d">
+<text x="42" y="53" font-size="32" font-weight="700">재생 버튼 뒤에서, 기록을 저장하고 다시 찾는 엔진</text>
+<text x="42" y="92" font-size="23" fill="#4c665b">음악 파일 대신 ‘누가 어떤 노래를 들었는지’를 다룹니다.</text>
+<rect x="42" y="140" width="255" height="150" rx="10" fill="#fff" stroke="#c2cec5"/>
+<text x="67" y="184" font-size="27" font-weight="700">음악 앱의 요청</text><text x="67" y="225" font-size="24">사용자 71 · 노래 108</text><text x="67" y="261" font-size="24">저장해 줘 / 찾아줘</text>
+<path d="M310 216 H390" stroke="#547065" stroke-width="3" marker-end="url(#arrow)"/><text x="320" y="193" font-size="21">SQL</text>
+<rect x="410" y="140" width="355" height="150" rx="10" fill="#e3f1e9" stroke="#81aa94"/>
+<text x="437" y="184" font-size="29" font-weight="700">우리가 만든 DBMS</text><text x="437" y="225" font-size="25">명령 해석 → 실행</text><text x="437" y="261" font-size="24">INSERT 저장 · SELECT 조회</text>
+<path d="M778 216 H855" stroke="#547065" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="875" y="140" width="282" height="150" rx="10" fill="#fff" stroke="#c2cec5"/>
+<text x="899" y="184" font-size="28" font-weight="700">디스크의 .db 파일</text><text x="899" y="225" font-size="24">실제 재생 기록 보관</text><text x="899" y="261" font-size="24">다음 실행에서도 읽기</text>
+<text x="42" y="336" font-size="23" fill="#4c665b">저장 규칙: 헤더 32바이트 + 기록당 92바이트 · 고정 길이 바이너리</text>
+</g></svg>

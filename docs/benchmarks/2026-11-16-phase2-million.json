@@ -1,0 +1,110 @@
+{
+  "records": 1000000,
+  "file_bytes": 92000032,
+  "samples": 9,
+  "load_ns": 1612747437,
+  "rebuild_ns": 786616106,
+  "indexed_median_ns": 3001,
+  "linear_median_ns": 596556530,
+  "indexed_min_ns": 2120,
+  "indexed_max_ns": 3870,
+  "linear_min_ns": 588951372,
+  "linear_max_ns": 612749158,
+  "queries": [
+    {
+      "id": 250000,
+      "indexed_ns": 2470,
+      "linear_ns": 600072960,
+      "indexed_scanned": 1,
+      "linear_scanned": 1000000,
+      "index_nodes": 5,
+      "matched": 1
+    },
+    {
+      "id": 333334,
+      "indexed_ns": 3870,
+      "linear_ns": 595381585,
+      "indexed_scanned": 1,
+      "linear_scanned": 1000000,
+      "index_nodes": 5,
+      "matched": 1
+    },
+    {
+      "id": 416667,
+      "indexed_ns": 2420,
+      "linear_ns": 599130885,
+      "indexed_scanned": 1,
+      "linear_scanned": 1000000,
+      "index_nodes": 5,
+      "matched": 1
+    },
+    {
+      "id": 500000,
+      "indexed_ns": 3741,
+      "linear_ns": 595798282,
+      "indexed_scanned": 1,
+      "linear_scanned": 1000000,
+      "index_nodes": 5,
+      "matched": 1
+    },
+    {
+      "id": 583333,
+      "indexed_ns": 3050,
+      "linear_ns": 612749158,
+      "indexed_scanned": 1,
+      "linear_scanned": 1000000,
+      "index_nodes": 5,
+      "matched": 1
+    },
+    {
+      "id": 666667,
+      "indexed_ns": 3001,
+      "linear_ns": 596556530,
+      "indexed_scanned": 1,
+      "linear_scanned": 1000000,
+      "index_nodes": 5,
+      "matched": 1
+    },
+    {
+      "id": 750000,
+      "indexed_ns": 2230,
+      "linear_ns": 588951372,
+      "indexed_scanned": 1,
+      "linear_scanned": 1000000,
+      "index_nodes": 5,
+      "matched": 1
+    },
+    {
+      "id": 833333,
+      "indexed_ns": 3511,
+      "linear_ns": 591754359,
+      "indexed_scanned": 1,
+      "linear_scanned": 1000000,
+      "index_nodes": 5,
+      "matched": 1
+    },
+    {
+      "id": 916666,
+      "indexed_ns": 2120,
+      "linear_ns": 603648281,
+      "indexed_scanned": 1,
+      "linear_scanned": 1000000,
+      "index_nodes": 5,
+      "matched": 1
+    }
+  ],
+  "environment": {
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+    "compiler": "gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0",
+    "build": "-O2 C11",
+    "data_files": "Docker Linux /tmp, removed after benchmark",
+    "sql_bytes": 104289378
+  },
+  "limitations": [
+    "Warm OS cache; not a cold-disk benchmark",
+    "One process, sequential requests; no concurrency benchmark",
+    "Startup/file validation/index rebuild and parsing excluded from lookup timings",
+    "Same row and exactly one match on both paths; linear path scans all rows",
+    "SQL generation and input read excluded from load time; load includes parse/insert/close+fsync"
+  ]
+}
