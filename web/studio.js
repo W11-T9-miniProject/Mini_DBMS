@@ -15,7 +15,7 @@
   const sampleSQL = "INSERT INTO users (name, age, email)\nVALUES\n  ('김민수', 25, 'minsu@example.com'),\n  ('이서연', 28, 'seoyeon@example.com'),\n  ('박지훈', 30, 'jihoon@example.com'),\n  ('최유진', 25, 'yujin@example.com'),\n  ('정다은', 22, 'daeun@example.com');";
   const state = {
     token: "", busy: false, result: null, error: null, page: 0,
-    history: readHistory(), connected: false, refreshing: false,
+    history: readHistory(), connected: false, refreshing: false, refreshPending: false,
   };
   const numberFormat = new Intl.NumberFormat("ko-KR");
   let toastTimer;
@@ -178,12 +178,12 @@
   }
 
   function formatStorage(bytes) {
-    if (bytes >= 1024 * 1024) return [(bytes / (1024 * 1024)).toFixed(2), "MB"];
-    return [(bytes / 1024).toFixed(2), "KB"];
+    if (bytes >= 1024 * 1024) return [(bytes / (1024 * 1024)).toFixed(2), "MiB"];
+    return [(bytes / 1024).toFixed(2), "KiB"];
   }
 
   async function refreshOverview({ notify = false } = {}) {
-    if (state.refreshing) return;
+    if (state.refreshing) { state.refreshPending ||= notify; return; }
     state.refreshing = true;
     byId("refresh-stats").classList.add("is-loading");
     try {
@@ -204,6 +204,10 @@
     } finally {
       state.refreshing = false;
       byId("refresh-stats").classList.remove("is-loading");
+      if (state.refreshPending) {
+        state.refreshPending = false;
+        refreshOverview({ notify: true });
+      }
     }
   }
 
@@ -334,7 +338,9 @@
     const feedback = byId("result-feedback");
     feedback.replaceChildren(node("strong", "", `${error.status ? "HTTP " + error.status + " · " : ""}${error.code || "ERROR"}`), node("span", "", error.message));
     feedback.hidden = false;
-    showEmpty("쿼리를 실행하지 못했습니다", error.status === 401 ? "상단의 연결 설정에서 API 토큰을 입력하세요." : "위의 오류 내용을 확인하고 쿼리를 수정해 주세요.");
+    showEmpty("요청을 완료하지 못했습니다", error.status === 401 ? "상단의 연결 설정에서 API 토큰을 입력하세요." :
+      !error.status || error.status >= 500 ? "INSERT 요청이었다면 저장 여부를 먼저 확인하세요. 오류 내용에 따라 엔진을 다시 열어야 할 수 있습니다." :
+      "위의 오류 내용을 확인하고 쿼리를 수정해 주세요.");
     byId("view-plan").replaceChildren(node("div", "plan-empty", "성공한 실행 계획이 없습니다."));
     byId("json-response").textContent = JSON.stringify({ error: { code: error.code, message: error.message } }, null, 2);
     byId("query-timestamp").textContent = "마지막 요청 실패";

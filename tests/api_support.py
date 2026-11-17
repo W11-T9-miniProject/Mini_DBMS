@@ -22,9 +22,9 @@ def request(port, method="POST", path="/query", document=None, *, body=None, hea
     outgoing_headers = {"Content-Type": "application/json", **(headers or {})}
     try:
         connection.request(method, path, body=body, headers=outgoing_headers)
-        response = connection.getresponse()
-        raw = response.read()
-        return response.status, json.loads(raw.decode("utf-8")), dict(response.getheaders())
+        with connection.getresponse() as response:
+            raw = response.read()
+            return response.status, json.loads(raw.decode("utf-8")), dict(response.getheaders())
     finally:
         connection.close()
 
@@ -41,7 +41,8 @@ def raw_request(port, data: bytes, *, shutdown_write=False):
 
 class ServerProcess:
     def __init__(self, directory: Path, *options, token=None):
-        self.log = (directory.parent / f"{directory.name}-server.log").open("wb")
+        self.log_path = directory.parent / f"{directory.name}-server.log"
+        self.log = self.log_path.open("wb")
         environment = os.environ.copy()
         environment.pop("MINIDB_API_TOKEN", None)
         if token:
@@ -61,7 +62,8 @@ class ServerProcess:
         try:
             line = ready.get(timeout=15)
             if not isinstance(line, bytes) or not line:
-                raise RuntimeError("API exited before ready; inspect its server log")
+                details = self.log_path.read_bytes().decode("utf-8", errors="replace")[-6000:]
+                raise RuntimeError("API exited before ready:\n" + details)
             message = json.loads(line)
             if message.get("event") != "ready":
                 raise RuntimeError(f"Unexpected ready message: {message}")

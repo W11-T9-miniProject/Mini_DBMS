@@ -142,6 +142,10 @@ close는 새 호출을 차단하고 기존 호출 수가 0이 된 뒤 db_close�
 | GET /stats | 엔진 행 수·인덱스 통계와 worker·대기·거절 통계 |
 | POST /query | JSON의 sql 한 문장을 기존 C 엔진에 전달 |
 
+브라우저용 [MiniDB Studio](STUDIO.md)는 `/`에서 제공한다.
+`/assets/studio.css`, `/assets/studio.js`, `/favicon.svg`는 고정 경로의 정적 자산이며,
+기존 `/query`와 `/stats`를 같은 출처에서 사용한다. 이 정적 경로는 SQL API의 결과 크기 제한과 별개다.
+
 ```json
 {"sql":"SELECT name,id FROM users WHERE id=1"}
 ```

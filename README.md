@@ -55,6 +55,13 @@ python3 -m api.server --db data --workers 4 --queue-size 64 --port 8080
 
 별도 터미널에서 예제 클라이언트를 실행합니다.
 
+서버를 실행한 뒤 **http://127.0.0.1:8080/** 을 열면 **MiniDB Studio** 웹페이지를 사용할 수 있습니다.
+SQL 편집기, 예제 쿼리, 레코드 추가 폼, 결과 표·페이지 이동·CSV, 실행 계획·JSON,
+최근 쿼리와 실시간 엔진 통계를 제공합니다. 별도 프런트엔드 빌드나 npm 설치는 필요 없습니다.
+모든 SQL은 기존 `/query`를 통해 실제 C 엔진에서 실행됩니다.
+페이지를 열기만 해서는 데이터를 추가하지 않습니다. 샘플 추가 버튼은 실제 DB에 5건을 저장합니다.
+자세한 사용법과 구성은 [STUDIO.md](docs/STUDIO.md)를 참고하세요.
+
 ```sh
 python examples/api_client.py
 curl http://127.0.0.1:8080/health
@@ -234,6 +241,7 @@ api/native.py      ctypes 공유 라이브러리 연결과 엔진 수명 관리
 api/pool.py        고정 worker + 제한 큐
 api/server.py      HTTP 검증·라우팅·JSON 응답
 api/http_io.py     입력 크기·절대 기한 제한
+web/              같은 서버에서 제공하는 MiniDB Studio (HTML/CSS/JS)
 tools/http_benchmark.py 실제 HTTP 부하·재시작 검증
 ```
 

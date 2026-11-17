@@ -19,11 +19,11 @@ class StudioHttpTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def asset(self, path, method="GET"):
-        connection = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=5)
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.port, timeout=10)
         try:
             connection.request(method, path)
-            response = connection.getresponse()
-            return response.status, dict(response.getheaders()), response.read()
+            with connection.getresponse() as response:
+                return response.status, dict(response.getheaders()), response.read()
         finally:
             connection.close()
 

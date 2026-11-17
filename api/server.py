@@ -235,6 +235,7 @@ class ApiHandler(BaseHTTPRequestHandler):
 
     def send_bytes(self, status, body, content_type, *, extra_headers=None):
         # Send has a separate timeout. It does not hold engine or queue locks.
+        send_deadline = time.perf_counter() + self.server.settings.send_timeout
         self.connection.settimeout(self.server.settings.send_timeout)
         if self.request_version == "HTTP/0.9":
             self.request_version = "HTTP/1.1"
@@ -249,7 +250,14 @@ class ApiHandler(BaseHTTPRequestHandler):
             self.send_header(key, value)
         self.end_headers()
         if self.command != "HEAD":
-            self.wfile.write(body)
+            # Static assets are larger than most SQL replies. Send bounded
+            # chunks while keeping one deadline for the entire response.
+            for offset in range(0, len(body), 8192):
+                remaining = send_deadline - time.perf_counter()
+                if remaining <= 0:
+                    raise TimeoutError("Response send deadline expired")
+                self.connection.settimeout(remaining)
+                self.wfile.write(body[offset:offset + 8192])
 
     def _serve_studio_asset(self):
         filename, content_type = STATIC_ASSETS[self.path]
