@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>파일 바이트에서 SELECT 결과까지</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 스물두 번째 수업 · 5분</div><h1>저장된 바이트가<br>결과 행이 되기까지</h1><p class="lede">INSERT에서 만든 직렬화 형식을 db_read()가 되돌리고, SELECT가 조건을 적용하는 과정을 따라갑니다.</p></header>
+<section><h2>행 파일에는 값이 차례로 기록됨</h2><p>앞 수업에서 <code>db_append()</code>는 각 값의 길이를 4바이트로 기록하고, 뒤이어 값의 바이트를 저장했습니다.</p><pre>[len][id bytes][len][name bytes][len][age bytes]
+  1      "7"     4      "Mina"    2      "24"</pre><p>각 행은 스키마의 컬럼 순서대로 저장되므로, 읽는 쪽도 같은 스키마 순서를 알아야 합니다.</p></section>
+<section><h2>db_read()가 한 행을 복원</h2><p><code>select_rows()</code>는 <code>.rows</code>를 열고 <code>db_read()</code>를 반복 호출합니다. <code>db_read()</code>는 컬럼마다 길이 접두부를 읽고, 그 길이만큼 값을 메모리에 할당해 읽습니다.</p><pre>db_read(file, table, &row)
+  1. 값 길이 읽기
+  2. 길이만큼 바이트 읽기
+  3. 문자열 끝 표시 추가
+  4. INTEGER 형식 등 데이터 검증
+  5. DbRow 반환</pre><p>파일 끝에 정상 도달하면 0, 행을 읽으면 1, 데이터가 잘못되었거나 읽기 오류면 -1을 반환합니다.</p></section>
+<section><h2>SELECT가 행을 처리</h2><pre>select_rows()
+  ├─ db_read() → DbRow
+  ├─ matches() → WHERE에 맞나?
+  ├─ projection[] → 어떤 컬럼을 출력하나?
+  └─ write_field() → CSV 형태로 출력</pre><p><code>matches()</code>는 정수 컬럼은 숫자로 비교하고 텍스트 컬럼은 문자열 비교를 합니다. 조건을 통과한 행만 요청된 컬럼 순서대로 출력합니다.</p></section>
+<section><h2>오류가 나면?</h2><p>길이가 최대 텍스트 길이보다 크거나, 값이 파일 끝까지 다 들어오지 않았거나, 정수 값이 유효하지 않으면 <code>db_read()</code>는 손상되었거나 읽을 수 없는 데이터로 보고 오류를 반환합니다. 다만 이 검사는 형식 오류를 발견하는 것이고, 누락된 WAL이나 백업처럼 복구하는 기능은 아닙니다.</p><p class="muted">테이블이 없고 데이터 파일도 아직 없으면 현재 SELECT는 빈 결과로 취급합니다. 파일은 있는데 중간 레코드가 잘려 있으면 읽기 오류가 납니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p><code>db_read()</code>는 저장 값의 끝을 어떻게 아나요?</p><button onclick="answer(false)">줄바꿈 문자를 만날 때</button><button onclick="answer(false)">각 행의 고정 바이트 수로</button><button onclick="answer(true)">각 값 앞에 저장된 길이를 읽어서</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>코드에서 직접 보기</h2><ul><li><a href="../src/storage.c">src/storage.c</a> — <code>db_read()</code> 및 손상 검사</li><li><a href="../src/engine.c">src/engine.c</a> — <code>select_rows()</code>, <code>matches()</code>, 출력</li><li><a href="0021-insert-to-disk.html">이전 수업: INSERT에서 파일 저장까지</a></li><li><a href="../reference/dbms-flow.html">DBMS 데이터 흐름 요약</a></li></ul></section>
+<footer>INSERT는 메모리 행을 파일 바이트로 바꾸고, SELECT는 파일 바이트를 메모리 행으로 되돌립니다. 이어서 행 파일 형식을 바꾸면 어떤 문제가 생기는지 볼 수 있어요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. 길이 접두부를 읽어야 값의 경계를 알 수 있습니다.':'이 파일 형식은 값마다 길이를 저장해 각 값의 경계를 표시합니다.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

@@ -1,0 +1,7 @@
+/mini_dbms
+__pycache__/
+*.rows
+/mini_dbms_server
+/test_bptree
+.engine.lock
+/test_engine

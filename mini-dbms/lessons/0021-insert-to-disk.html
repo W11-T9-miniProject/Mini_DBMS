@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>INSERT에서 파일 저장까지</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 스물한 번째 수업 · 5분</div><h1>INSERT는 어떻게<br>파일에 저장될까?</h1><p class="lede">SQL의 값들이 검증되고 직렬화되어 행 파일 끝에 추가되는 경로를 따라갑니다.</p></header>
+<section><h2>입력 SQL</h2><pre>INSERT INTO people (id, name, age)
+VALUES (7, 'Mina', 24);</pre><p><code>main()</code>이 SQL 파일을 읽고, <code>db_execute()</code>가 <code>INSERT</code> 키워드를 만나 <code>insert()</code>로 분기합니다.</p></section>
+<section><h2>1. 스키마로 컬럼과 타입 확인</h2><p><code>insert()</code>가 <code>open_table()</code>을 통해 <code>db_table_open()</code>을 호출합니다. 저장 계층은 <code>people.schema</code>를 읽어 컬럼 이름과 타입을 <code>DbTable</code>에 채웁니다. 이 정보로 SQL의 컬럼 이름과 입력 리터럴을 검사합니다.</p><pre>people.schema
+id INTEGER
+name TEXT
+age INTEGER</pre><p>이 프로젝트에서는 사람이 미리 준비한 스키마 파일을 읽는 방식입니다. 아직 <code>CREATE TABLE</code>로 등록하지 않습니다.</p></section>
+<section><h2>2. SQL 값에서 메모리 행으로</h2><p><code>insert()</code>는 컬럼 이름을 내부 컬럼 번호로 찾고, <code>literal()</code>은 타입에 맞는 값을 파싱합니다. 정수는 범위를 확인하고 표준 문자열 형태로 만들며, 텍스트는 줄바꿈 같은 저장 형식상 허용되지 않는 내용을 거릅니다.</p><pre>DbRow {
+  values[0] = "7",
+  values[1] = "Mina",
+  values[2] = "24"
+}</pre></section>
+<section><h2>3. 행을 바이트로 직렬화</h2><p><code>db_append()</code>는 각 값의 길이를 4바이트 정수로 기록한 뒤, 값의 바이트를 이어 붙입니다. 예를 들면 다음처럼 저장됩니다.</p><pre>[길이 1][문자 '7']
+[길이 4][문자 'Mina']
+[길이 2][문자 '24']</pre><p>이런 식으로 메모리의 값을 파일에 저장 가능한 바이트 배열로 바꾸는 일을 <b>직렬화</b>라고 합니다. 이후 <code>db_read()</code>는 길이를 읽어 각 값을 다시 복원합니다.</p></section>
+<section><h2>4. 파일 끝에 추가</h2><p>직렬화가 끝나면 <code>db_append()</code>가 <code>.rows</code> 파일을 append 모드로 열고 바이트를 씁니다. 여기서 중요한 설계 특징은 <b>행 파일은 컬럼 이름을 저장하지 않고, 스키마 순서대로 값만 저장한다</b>는 점입니다. 그래서 기존 행을 해석하려면 같은 스키마 순서가 유지되어야 합니다.</p><p class="muted">이 단순 구현에는 WAL/롤백, 동시 쓰기 제어, 행 단위 체크섬 같은 안정성 기능이 없습니다. 따라서 DBMS가 보장하는 완전한 트랜잭션 저장이라고 보면 안 됩니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p><code>db_append()</code>가 <code>.rows</code>에 저장하는 데이터는 무엇인가요?</p><button onclick="answer(false)">컬럼 이름과 CREATE TABLE 문장만</button><button onclick="answer(true)">각 값의 길이와 값 바이트</button><button onclick="answer(false)">SQL 원문 전체만</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>코드에서 직접 보기</h2><ul><li><a href="../src/main.c">src/main.c</a> — SQL 입력</li><li><a href="../src/engine.c">src/engine.c</a> — <code>db_execute()</code>, <code>insert()</code>, <code>literal()</code></li><li><a href="../src/storage.c">src/storage.c</a> — <code>db_table_open()</code>, <code>db_append()</code>, <code>db_read()</code></li><li><a href="0020-reading-explain.html">이전 수업: EXPLAIN으로 계획 읽기</a></li></ul></section>
+<footer>다음에는 SELECT가 같은 바이트 형식을 어떻게 다시 행으로 복원하는지 따라가거나, INSERT의 안정성 한계를 더 살펴볼 수 있어요. 질문이 있으면 언제든 물어보세요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. 길이 접두부와 각 값의 바이트를 기록해 db_read()가 복원할 수 있게 합니다.':'db_append()는 이미 검증된 행의 값을 저장 형식으로 직렬화합니다.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

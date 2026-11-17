@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pull과 Push 실행 방식 비교</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 열여섯 번째 수업 · 4분</div><h1>행을 당겨올까,<br>밀어올까?</h1><p class="lede">실행 연산자 사이에서 데이터가 흐르는 방향을 정하는 두 가지 방식입니다.</p></header>
+<section><h2>Pull: 위에서 아래로 요청</h2><p>앞 수업의 iterator 방식입니다. 결과를 원하는 상위 연산자가 자식에게 “다음 행 줘”라고 요청합니다.</p><pre>Project.next()
+  → Filter.next()
+      → SeqScan.next()
+      ← 행이 위로 돌아옴</pre><p>결과를 필요한 만큼만 요청할 수 있고, 연산자들이 공통 인터페이스로 조립됩니다. 이 방식은 Volcano 실행 모델의 핵심 아이디어 중 하나입니다. <a href="https://15799.courses.cs.cmu.edu/spring2025/papers/04-volcano/graefe-icde1994.pdf">Graefe, Volcano 논문</a></p></section>
+<section><h2>Push: 아래에서 위로 전달</h2><p>반대로 스캔 연산자가 행을 찾으면 위쪽 연산자에 전달하고, Filter가 통과시키면 다음 연산자로 밀어 올립니다.</p><pre>SeqScan: 행 발견
+  ──push──→ Filter: 조건 검사
+                ──통과 시 push──→ Project: 컬럼 선택
+                                      ──push──→ 결과</pre></section>
+<section><h2>무엇이 더 좋은가?</h2><div class="card"><p><b>Pull의 장점:</b> 필요한 만큼 결과를 요청하기 쉽고, 연산자 인터페이스를 조합하기 좋습니다.</p><p><b>Push의 장점:</b> 행마다 함수 호출을 반복하는 부담을 줄이거나, 여러 행을 묶어 처리하는 벡터화 실행과 결합하기 쉽습니다.</p><p><b>선택:</b> DBMS와 실행기 설계에 따라 다릅니다. 많은 엔진은 한 방식만 고집하기보다 상황에 따라 여러 실행 방식을 섞습니다.</p></div><p>두 모델 모두 중요한 질문은 같아요. “행을 누가 다음 연산자에 전달하며, 연산자 간 경계를 어떻게 관리하는가?”</p></section>
+<section><h2>미니 DBMS는?</h2><p>현재 프로젝트는 별도 연산자 연결 구조가 없고, <code>select_rows()</code>의 반복문이 파일에서 행을 읽어 조건을 확인한 뒤 바로 출력합니다. 따라서 이 코드를 완전한 pull 또는 push 실행기로 부르기보다는, 하나의 함수에서 순차 처리하는 단순 실행이라고 보는 게 정확합니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p>Pull 모델에서 보통 누가 아래쪽 연산자에 다음 행을 요청하나요?</p><button onclick="answer(false)">저장소가 항상 결과를 밀어냄</button><button onclick="answer(true)">위쪽 연산자가 자식에게 요청함</button><button onclick="answer(false)">SQL 파서가 디스크에 요청함</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>더 읽기</h2><ul><li><a href="https://15799.courses.cs.cmu.edu/spring2025/papers/04-volcano/graefe-icde1994.pdf">Volcano: An Extensible and Parallel Query Evaluation System</a> — iterator 기반 연산자 실행의 고전 논문</li><li><a href="https://arxiv.org/abs/1610.09166">Push vs. Pull-Based Loop Fusion in Query Engines</a> — 두 모델의 처리 특성 비교</li><li><a href="0015-operator-iterator-model.html">이전 수업: 연산자 iterator</a></li></ul></section>
+<footer>여기까지 실행기의 데이터 흐름 모델을 봤습니다. 다음에는 결과를 전부 메모리에 만드는 물질화 방식이나, 행 여러 개를 묶어 처리하는 벡터화 실행을 살펴볼 수 있어요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. 위쪽 연산자가 결과가 필요할 때 자식의 next()를 호출합니다.':'Pull은 데이터를 원하는 쪽이 아래쪽에 요청하는 방식입니다.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

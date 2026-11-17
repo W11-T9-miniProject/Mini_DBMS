@@ -13,12 +13,12 @@ cd /path/to/Mini_DBMS/c-mini-redis
 make
 ```
 
-macOS에서는 `brew install lua`로 Lua를 설치할 수 있습니다. 다른 환경은 `make LUA_PREFIX=/path/to/lua`로 설치 위치를 지정하세요. DBMS 서버 소스는 이 업로드에 포함하지 않으므로 기존 Mini DBMS 소스를 별도로 준비해야 합니다.
+macOS에서는 `brew install lua`로 Lua를 설치할 수 있습니다. 다른 환경은 `make LUA_PREFIX=/path/to/lua`로 설치 위치를 지정하세요. DBMS 서버 소스는 이 저장소의 `mini-dbms/`에 포함되어 있습니다.
 
 터미널 1 — Mini DBMS API와 원본 테이블:
 
 ```sh
-cd /path/to/mini_dbms
+cd /path/to/Mini_DBMS/mini-dbms
 make mini_dbms_server
 mkdir -p /tmp/mini-db-api
 cp examples/db/people.schema /tmp/mini-db-api/people.schema

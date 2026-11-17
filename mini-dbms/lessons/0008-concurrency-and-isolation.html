@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>동시성 제어와 격리</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 여덟 번째 수업 · 4분</div><h1>여럿이 동시에<br>접근하면?</h1><p class="lede">동시성 제어는 여러 연결의 읽기와 쓰기가 서로 꼬이지 않도록 순서와 가시성을 관리합니다.</p></header>
+<section><h2>문제: 같은 값을 동시에 바꾸기</h2><p>은행 잔액이 100이라고 해봅시다. 연결 A와 B가 거의 동시에 잔액을 읽고, 각각 10을 더해 110을 저장하면 최종 잔액이 110이 될 수 있어요. 둘 다 변경했는데 한쪽 변경이 덮인 상황입니다.</p><pre>A: 100 읽기 → 110 계산 ─────→ 110 저장
+B:       100 읽기 → 110 계산 → 110 저장
+
+기대 결과: 120   실제 결과: 110</pre><p>DBMS는 잠금이나 버전 관리 같은 방법으로 읽기·쓰기의 충돌을 조정합니다.</p></section>
+<section><h2>잠금과 격리</h2><p><b>잠금</b>은 한 트랜잭션이 데이터를 바꾸는 동안 다른 작업이 어떻게 접근할 수 있는지 통제합니다. <b>격리</b>는 동시에 실행되는 트랜잭션들이 서로의 미완료 변경을 부적절하게 보지 않도록 보장하는 성질입니다.</p><p>SQLite의 롤백 저널 모드에서는 쓰기 트랜잭션이 데이터베이스 파일을 잠가 충돌을 막습니다. WAL 모드에서는 읽기와 쓰기가 더 잘 겹칠 수 있지만, 동시에 쓰는 트랜잭션은 여전히 하나씩 처리됩니다. <a href="https://www.sqlite.org/isolation.html">SQLite Isolation 문서</a></p></section>
+<section><h2>WAL에서 읽기와 쓰기</h2><pre>읽기 연결: 기존 스냅샷을 읽음 ────────────────
+쓰기 연결: WAL에 변경 기록 → COMMIT
+                                      ↓
+                         나중에 체크포인트로 DB 파일에 반영</pre><p>WAL에서는 읽는 쪽이 데이터 파일을 보는 동안 쓰는 쪽은 변경 내용을 WAL에 추가할 수 있습니다. 읽기 연결은 자기 트랜잭션이 시작될 때의 일관된 스냅샷을 봅니다. 체크포인트는 WAL의 변경을 원래 데이터베이스 파일에 옮기는 과정입니다.</p><p class="muted">동시성이 높아지는 방식과 한계는 DBMS와 설정에 따라 달라집니다. “WAL이면 여러 쓰기가 동시에 된다”는 뜻은 아닙니다.</p></section>
+<section><h2>현재 미니 DBMS는?</h2><p>현재 코드는 파일 잠금이나 트랜잭션 격리를 구현하지 않습니다. 두 프로세스가 동시에 같은 <code>.rows</code>를 읽고 쓰는 상황을 안전하게 조정하는 계층도 없습니다. 앞 수업의 저널/WAL과 이번 수업의 동시성 제어는 실제 DBMS가 저장 계층 주변에 갖추는 기능입니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p>SQLite WAL 모드에서 읽기 작업이 보는 데이터는 무엇인가요?</p><button onclick="answer(false)">다른 트랜잭션의 미완료 값</button><button onclick="answer(true)">트랜잭션 시점의 일관된 스냅샷</button><button onclick="answer(false)">항상 최신 디스크 페이지</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>더 읽기</h2><ul><li><a href="https://www.sqlite.org/isolation.html">SQLite Isolation</a> — 롤백 모드와 WAL의 동시성</li><li><a href="https://www.sqlite.org/wal.html">SQLite WAL</a> — 체크포인트와 WAL 동작</li><li><a href="../reference/dbms-flow.html">DBMS 데이터 흐름 요약</a></li><li><a href="0007-transactions-and-recovery.html">이전 수업: 트랜잭션과 복구</a></li></ul></section>
+<footer>여기까지 SQL이 파싱되어 실행되고, 저장되며, 장애·동시 접근을 다루는 큰 흐름을 훑었습니다. 다음에는 전체 아키텍처를 복습하거나 관심 있는 계층을 더 깊게 볼 수 있어요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. 읽기 트랜잭션은 시작 시점의 일관된 스냅샷을 봅니다.':'격리는 읽기가 다른 트랜잭션의 미완료 변경을 섞어 보지 않도록 합니다.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

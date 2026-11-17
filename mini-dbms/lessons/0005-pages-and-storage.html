@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DBMS는 데이터를 어떻게 읽을까?</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 다섯 번째 수업 · 4분</div><h1>행에서 페이지로</h1><p class="lede">DBMS는 디스크의 데이터를 보통 한 행씩이 아니라, 페이지라는 묶음 단위로 가져옵니다.</p></header>
+<section><h2>먼저 파일 둘을 구분하기</h2><div class="card"><p><b>스키마 (<code>people.schema</code>)</b> — 테이블이 어떤 모양인지 적은 구조 정보. 예: <code>id INTEGER</code>, <code>name TEXT</code>.</p><p><b>행 데이터 (<code>people.rows</code>)</b> — 실제 값들. 예: <code>1, Mina</code>, <code>2, Joon</code>.</p></div><p>스키마는 “각 행에 어떤 칸이 있는가”를 알려주고, 데이터 파일은 “각 칸에 실제로 어떤 값이 들어 있는가”를 담습니다.</p></section>
+<section><h2>페이지는 데이터의 운반 상자</h2><p>디스크에서 작은 값 하나만 매번 요청하면 비효율적입니다. 그래서 DBMS는 파일의 일정한 크기 구간을 <b>페이지</b>로 다루고, 페이지 안에 여러 행이나 인덱스 항목을 저장합니다.</p><pre>데이터베이스 파일
+┌──────────┬──────────┬──────────┐
+│ 페이지 0 │ 페이지 1 │ 페이지 2 │ ...
+│ 여러 행  │ 여러 행  │ 여러 행  │
+└──────────┴──────────┴──────────┘</pre><p>실행기는 “이 행을 줘”라고 요청하지만, 저장 계층은 필요한 페이지를 메모리에 올리고 그 안에서 행을 찾아 줄 수 있어요.</p></section>
+<section><h2>페이지 캐시는 무엇을 하나?</h2><p>페이지 캐시는 최근에 읽었거나 수정한 페이지를 메모리에 보관합니다. 같은 페이지를 다시 요청하면 디스크를 재차 읽지 않고 메모리의 복사본을 쓸 수 있어요.</p><pre>실행기 요청 → 페이지 캐시 확인
+                 ├─ 이미 메모리에 있음 → 바로 전달
+                 └─ 없음 → 파일에서 페이지 읽기 → 캐시에 보관</pre><p>SQLite의 공식 아키텍처 문서에 따르면 B-tree 모듈은 페이지를 페이지 캐시에 요청하고, 페이지 캐시는 필요한 페이지를 디스크에서 읽어오며 트랜잭션과 잠금 관련 역할도 담당합니다. <a href="https://www.sqlite.org/arch.html">SQLite 아키텍처: Page Cache</a></p></section>
+<section><h2>이 프로젝트와 실제 DBMS의 차이</h2><p>이 프로젝트는 페이지 캐시 계층 없이 <code>db_read()</code>가 <code>.rows</code> 파일에서 직렬화된 행을 직접 읽습니다. 따라서 앞 수업의 순차 스캔은 파일을 행 단위 형식으로 훑는 방식이에요.</p><p>실제 DBMS에서는 대개 실행기와 파일 사이에 저장소 계층이 있고, 페이지 단위 읽기·캐싱·쓰기·복구를 담당합니다. 그래서 이 프로젝트의 <code>db_read()</code>를 실제 DBMS의 전체 저장소 계층과 동일시하면 안 됩니다. 행을 해석하는 작은 저장 함수에 더 가깝습니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p><code>people.schema</code>와 <code>people.rows</code> 중 실제 사람의 나이, 이름 같은 값이 들어가는 파일은?</p><button onclick="answer(false)">people.schema</button><button onclick="answer(true)">people.rows</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>더 읽기</h2><ul><li><a href="https://www.sqlite.org/arch.html">SQLite 아키텍처</a> — B-tree와 페이지 캐시 역할</li><li><a href="https://www.sqlite.org/fileformat.html">SQLite Database File Format</a> — 실제 DB 파일의 페이지 구성</li><li><a href="../reference/dbms-flow.html">DBMS 데이터 흐름 요약</a></li><li><a href="0004-cost-estimation.html">이전 수업: 비용 추정</a></li></ul></section>
+<footer>다음에는 페이지에 행을 어떻게 배치하고 찾는지, 그리고 그때 B+트리 인덱스가 어떻게 도움을 주는지 이어서 볼 수 있어요. 궁금한 점은 편하게 물어보세요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. .rows가 실제 행 값을 담습니다.':'schema는 값 자체가 아니라 테이블의 컬럼과 타입을 설명해요.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

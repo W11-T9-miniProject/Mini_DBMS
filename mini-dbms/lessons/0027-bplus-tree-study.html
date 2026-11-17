@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>B+트리 구현을 위한 공부 가이드</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">Phase 2 · 구현과 함께 공부하기</div><h1>B+트리 인덱스<br>공부 가이드</h1><p class="lede">목표는 디스크 페이지 구조 전체가 아니라, 메모리에서 ID를 찾아 행 위치를 반환하는 B+트리의 검색과 삽입을 이해하는 것입니다.</p></header>
+<section><h2>짧은 한국어 영상</h2><div class="card"><p><b>자료구조&알고리즘 #10 — B+Tree (B+트리)</b></p><p><a href="https://www.youtube.com/watch?v=sXD5lE-B17Q">한국어 영상 보기</a> · 13분 29초</p><p>먼저 이 영상으로 구조와 데이터베이스 인덱스에서 쓰는 이유를 빠르게 잡으세요. 검색, 삽입, 분할 부분에 집중하면 이번 과제에 도움이 됩니다.</p></div></section>
+<section><h2>더 깊은 강의가 필요하면</h2><div class="card"><p><b>CMU Database Group — Tree Indexes: B+Trees</b></p><p><a href="https://www.youtube.com/watch?v=scUtG_6M_lU">CMU 강의 보기</a> · 약 82분 · Carnegie Mellon University 15-445 데이터베이스 강의</p><p>디스크 기반 인덱스, 노드 분할, 범위 검색까지 더 깊게 다룹니다. 동시성 제어나 페이지 최적화는 이번 메모리 기반 구현 범위 밖입니다.</p><p><a href="https://15445.courses.cs.cmu.edu/fall2024/notes/08-indexes1.pdf">CMU 강의 노트</a> · <a href="https://15445.courses.cs.cmu.edu/fall2024/slides/08-indexes1.pdf">강의 슬라이드</a></p></div></section>
+<section><h2>구현에 필요한 최소 그림</h2><pre>내부 노드: 어떤 자식으로 내려갈지 결정하는 경계 키
+리프 노드: 정렬된 ID와 행 파일 위치를 보관
+리프 링크: 다음 키 범위를 순서대로 방문할 때 사용
+
+lookup(id): 루트 → 내부 노드 → 리프 → 행 위치
+insert(id, offset): 리프에 정렬 삽입 → 가득 차면 분할
+                                     ↘ 경계 키를 부모에 삽입</pre><p>이 과제는 우선 ID 동등 검색을 사용하지만, 연결된 리프 구조는 B+트리의 핵심 특징이며 범위 검색으로 확장할 때 도움이 됩니다.</p></section>
+<section><h2>영상 보며 답해 보기</h2><ol><li>내부 노드의 키가 실제 레코드 위치를 담나요, 아니면 탐색 경계를 정하나요?</li><li>모든 ID가 최종적으로 어느 노드에 저장되나요?</li><li>리프가 꽉 찼을 때 키를 잃지 않고 어떻게 나누나요?</li><li>부모에 올라가는 분리 키는 검색 경계를 어떻게 유지하나요?</li></ol><p>구현 후에는 이 질문을 실제 코드의 노드 필드와 분할 함수에 연결해 확인하면 됩니다.</p></section>
+<section><h2>과제와 연결</h2><pre>B+트리 key: signed INTEGER ID
+B+트리 value: .rows 안의 행 시작 byte offset
+
+SELECT ... WHERE id = N
+  → B+트리에서 offset 검색
+  → storage가 해당 offset에서 행 읽기
+  → 선택 컬럼 출력</pre><p class="muted">메모리 인덱스는 프로세스 종료 후 사라집니다. 다음 실행에서 기존 .rows 데이터도 ID 인덱스로 찾으려면 시작 시 파일을 스캔해 트리를 다시 만들어야 합니다.</p></section>
+<section><h2>인터랙티브 시각화</h2><p><a href="https://www.cs.usfca.edu/~galles/visualization/BPlusTree.html">USFCA B+Tree Visualization</a>에서 작은 순서의 트리를 선택해 1, 2, 3, 4처럼 키를 넣고 리프 분할과 루트 분할을 관찰해 보세요.</p></section>
+<footer>강의 중 헷갈린 부분은 시간대나 화면을 설명해 주세요. 구현 코드의 해당 분할·검색 로직과 나란히 풀어볼게요.</footer></main></body></html>

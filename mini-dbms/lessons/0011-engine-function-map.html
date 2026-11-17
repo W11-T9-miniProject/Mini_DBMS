@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>엔진 함수들의 호출 흐름</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 열한 번째 수업 · 5분</div><h1>엔진 함수는<br>어떻게 이어질까?</h1><p class="lede">SQL 진입점인 <code>db_execute()</code>에서 SELECT와 INSERT의 함수 흐름을 따라갑니다.</p></header>
+<section><h2>바깥에서 안쪽으로</h2><p><code>main()</code>은 SQL 파일을 메모리로 읽은 뒤 <code>db_execute()</code>를 호출합니다. 엔진의 중심 함수는 SQL 문자열을 토큰으로 읽고 문장 종류에 따라 처리 함수를 부릅니다.</p><pre>main()
+  └── db_execute()
+      ├── next()       다음 토큰 읽기
+      ├── insert()     INSERT 처리
+      └── select_rows() SELECT 처리</pre><p><code>db_execute()</code>는 작은 문장 분배기라고 생각하면 됩니다. SQL 문법 전체를 직접 수행하는 대신 다음 단계의 함수를 선택합니다.</p></section>
+<section><h2>SELECT의 함수 흐름</h2><pre>select_rows()
+  ├── open_table() ── db_table_open()   .schema 읽기
+  ├── parse_or()
+  │    └── parse_and()
+  │         └── parse_atom()            WHERE 구조 만들기
+  └── .rows 파일 열기
+       ├── db_read()                    행 복원
+       ├── matches()                    조건 검사
+       └── write_field()                출력 형식 만들기</pre><p>함수마다 책임이 있습니다. <code>db_table_open()</code>은 테이블 구조를 읽고, <code>db_read()</code>는 행을 복원하며, <code>matches()</code>는 행이 조건에 맞는지 계산합니다.</p></section>
+<section><h2>INSERT의 함수 흐름</h2><pre>insert()
+  ├── open_table() ── db_table_open()  컬럼/타입 확인
+  ├── identifier(), literal()          이름과 값 파싱
+  └── db_append()                       행을 .rows 끝에 저장</pre><p><code>insert()</code>가 SQL 입력을 해석하고 유효성을 확인한 뒤, 실제 직렬화와 파일 쓰기는 저장 계층의 <code>db_append()</code>에 맡깁니다.</p></section>
+<section><h2>아키텍처상 중요한 경계</h2><p><code>engine.c</code>는 SQL을 이해하고 실행 흐름을 조정합니다. <code>storage.c</code>는 스키마와 행 파일에 접근합니다. 이 둘의 경계 덕분에 SQL 처리 코드가 파일 직렬화 세부사항을 전부 직접 구현하지 않아도 됩니다.</p><p>다만 현재 <code>select_rows()</code>는 파싱, 파일 스캔, 필터링, 결과 출력을 한 함수에서 이어서 합니다. 실제 DBMS식으로 더 나누려면 AST와 논리 계획, 실행 연산자, 저장소 인터페이스를 별도 단계로 둘 수 있습니다.</p><p class="muted">호출 흐름을 이해할 때는 “누가 문장을 해석하나?”, “누가 행을 읽나?”, “누가 조건을 평가하나?”를 각각 찾으면 됩니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p>이 코드에서 실제 저장된 행을 복원해 반환하는 함수는?</p><button onclick="answer(false)">parse_atom()</button><button onclick="answer(false)">matches()</button><button onclick="answer(true)">db_read()</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>코드에서 직접 보기</h2><ul><li><a href="../src/main.c">src/main.c</a> — SQL 파일 입력 및 진입점</li><li><a href="../src/engine.c">src/engine.c</a> — SQL 토큰화, 파싱, 실행 제어</li><li><a href="../src/storage.c">src/storage.c</a> — 스키마와 행 파일 처리</li><li><a href="../src/db.h">src/db.h</a> — 엔진과 저장소 사이의 자료형·함수 인터페이스</li><li><a href="0009-one-query-end-to-end.html">이전 복습: SELECT 전체 여정</a></li></ul></section>
+<footer>다음에는 이 경계를 바탕으로 AST와 실행 계획을 실제 코드 자료구조로 설계하는 방법을 볼 수 있어요. 함수 하나를 골라 더 자세히 추적해도 좋습니다.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. db_read()가 저장된 바이트를 행의 값들로 복원합니다.':'이 함수는 조건을 만들거나 평가하는 역할이에요. 파일에서 행을 복원하는 함수는 무엇인지 찾아보세요.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

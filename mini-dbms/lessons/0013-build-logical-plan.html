@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AST를 논리 계획으로 바꾸기</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 열세 번째 수업 · 5분</div><h1>AST를 논리 계획으로<br>한 단계씩 변환</h1><p class="lede">SELECT AST의 각 정보를 관계 연산자로 옮겨 논리 계획 트리를 만듭니다.</p></header>
+<section><h2>입력: SQL AST</h2><p>앞 수업의 <code>SelectStmt</code>가 다음 정보를 가지고 있다고 합시다.</p><pre>SelectStmt {
+  table_name: "people",
+  projection: [name],
+  where: age >= 18
+}</pre></section>
+<section><h2>1. 테이블부터 Scan으로</h2><p><code>FROM people</code>는 어떤 테이블의 행이 필요한지를 말합니다. 그래서 첫 계획 노드는 <code>Scan(people)</code>입니다.</p><pre>Scan[people]</pre></section>
+<section><h2>2. WHERE를 Filter로 감싸기</h2><p>AST에 WHERE 조건이 있다면, 스캔 결과를 입력으로 받는 <code>Filter</code> 노드를 위에 둡니다.</p><pre>Filter[age >= 18]
+└── Scan[people]</pre><p>조건 자체는 기존 <code>Expr</code> 트리를 Filter의 조건으로 재사용할 수 있습니다. 지금 프로젝트는 아직 이런 계획 노드를 생성하지 않습니다.</p></section>
+<section><h2>3. SELECT 컬럼을 Project로</h2><p>마지막으로 SELECT 목록을 <code>Project</code>로 옮겨 결과에 남길 컬럼을 지정합니다.</p><pre>Project[name]
+└── Filter[age >= 18]
+    └── Scan[people]</pre><p>트리는 아래에서 위로 행을 전달합니다. Scan이 행을 만들고, Filter가 일부를 버리고, Project가 컬럼을 줄입니다.</p></section>
+<section><h2>변환 규칙</h2><div class="card"><p><code>FROM table</code> → <code>Scan(table)</code></p><p><code>WHERE predicate</code>가 있으면 → <code>Filter(predicate, child)</code></p><p><code>SELECT columns</code> → <code>Project(columns, child)</code></p></div><p>즉 변환기는 AST 필드를 하나씩 읽어 계획 노드를 조립합니다. 계획 생성 단계에서 스키마를 참조해 테이블·컬럼 이름을 내부 컬럼 번호로 바꾸고 타입을 확인할 수도 있습니다.</p></section>
+<section><h2>이건 물리 실행 계획이 아님</h2><p><code>Scan[people]</code>은 “people을 읽어라”는 논리 작업입니다. 파일을 처음부터 읽을지, B+트리 인덱스를 사용할지는 다음 단계인 최적화·물리 계획에서 정합니다.</p><pre>AST → 논리 계획
+Project → Filter → Scan
+             ↓
+최적화 후 물리 선택
+Project → Filter → SeqScan(.rows)
+       또는 IndexScan(age 인덱스)</pre><p class="muted">이 프로젝트에는 AST 전체도, 논리 계획도, 최적화기도 아직 코드로 존재하지 않습니다. 위는 실제로 구현할 때의 설계 모델입니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p><code>WHERE age &gt;= 18</code>은 논리 계획의 어떤 노드가 되나요?</p><button onclick="answer(false)">Scan</button><button onclick="answer(false)">Project</button><button onclick="answer(true)">Filter</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>더 읽기</h2><ul><li><a href="https://www.sqlite.org/arch.html">SQLite 아키텍처</a> — parse tree 분석과 계획/코드 생성</li><li><a href="../src/engine.c">src/engine.c</a> — WHERE의 <code>Expr</code> 트리</li><li><a href="0012-full-select-ast.html">이전 수업: SELECT 전체 AST</a></li><li><a href="../reference/dbms-flow.html">DBMS 데이터 흐름 요약</a></li></ul></section>
+<footer>이제 SQL 구문 요소를 Scan/Filter/Project로 대응시킬 수 있습니다. 다음에는 같은 논리 계획을 SeqScan이나 IndexScan 같은 물리 연산자로 바꾸는 방법을 볼 수 있어요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. WHERE 조건은 행을 거르는 Filter 연산이 됩니다.':'WHERE는 조건을 적용하는 단계예요. 테이블 읽기와 출력 컬럼 선택을 구분해 보세요.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

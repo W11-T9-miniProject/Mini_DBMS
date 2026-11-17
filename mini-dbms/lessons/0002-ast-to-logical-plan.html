@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AST에서 논리 계획으로</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 두 번째 수업 · 4분</div><h1>AST에서<br>논리 계획으로</h1><p class="lede">SQL의 문법 구조를 DBMS 작업들의 조합으로 바꾸는 법을 익힙니다.</p></header>
+<section><h2>둘은 무엇이 다를까?</h2><p>AST는 SQL에 <b>어떤 문법 요소가 쓰였는지</b> 표현합니다. 논리 계획은 그 SQL이 <b>어떤 데이터 작업을 뜻하는지</b> 표현합니다.</p><pre>SQL:
+SELECT name FROM people WHERE age &gt;= 18;
+
+AST (단순화):
+Select
+├── columns: [name]
+├── table: people
+└── where: age &gt;= 18</pre><p>AST는 SQL 문장에 가까운 모양이에요. 여기서 테이블과 컬럼이 실제로 존재하는지 확인한 다음, 관계 연산으로 옮깁니다.</p></section>
+<section><h2>논리 계획으로 바꾸기</h2><pre>Project[name]
+└── Filter[age &gt;= 18]
+    └── Scan[people]</pre><p>아래에서 위로 읽으면 “people을 읽고, 조건을 거르고, name만 남긴다”는 뜻입니다.</p><div class="card"><p><b>Scan</b> — 테이블의 행을 가져온다.</p><p><b>Filter</b> — 조건에 맞는 행만 통과시킨다.</p><p><b>Project</b> — 결과에 필요한 컬럼만 남긴다.</p></div><p>이 계획은 아직 파일이나 인덱스를 지정하지 않아요. 같은 논리 계획을 전체 스캔으로도, 인덱스 사용으로도 실행할 수 있습니다. SQLite 공식 아키텍처 문서는 파서가 만든 parse tree를 분석해 실행용 코드를 생성하는 과정을 설명합니다. <a href="https://www.sqlite.org/arch.html">SQLite 아키텍처</a></p></section>
+<section><h2>이 프로젝트 코드와 비교</h2><p>현재 <code>engine.c</code>의 <code>parse_atom()</code>은 <code>age &gt;= 18</code> 같은 비교식을 <code>Expr</code> 노드로 만들고, <code>parse_and()</code>와 <code>parse_or()</code>가 조건 노드를 연결합니다. 이건 WHERE 조건의 AST와 비슷한 구조예요.</p><p>하지만 전체 SELECT AST와 논리 계획은 따로 만들지 않습니다. <code>select_rows()</code>가 SELECT를 파싱한 직후 파일을 열어 스캔하고, 조건 평가와 결과 컬럼 출력을 이어서 합니다.</p><pre>현재 코드의 실제 흐름:
+SELECT 파싱 → .rows 순차 읽기 → matches() → 선택 컬럼 출력
+
+개념상 논리 계획:
+Project[name] → Filter[age &gt;= 18] → Scan[people]</pre><p class="muted">따라서 논리 계획은 현재 코드에 이미 존재하는 객체의 이름이 아니라, 현재 동작을 DBMS 개념으로 설명한 모델입니다.</p></section>
+<section class="card"><h2 style="margin-top:0">직접 연결해 보기</h2><p><code>SELECT name FROM people WHERE age &gt;= 18</code>에서 <code>matches()</code>에 해당하는 논리 연산은 무엇일까요?</p><button onclick="answer(false)">Scan</button><button onclick="answer(true)">Filter</button><button onclick="answer(false)">Project</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>더 읽기</h2><ul><li><a href="https://www.sqlite.org/arch.html">SQLite 아키텍처</a> — 파서, 코드 생성, 실행 엔진의 연결</li><li><a href="https://www.sqlite.org/queryplanner.html">SQLite Query Planning</a> — 논리적으로 같은 조회를 다른 물리 방법으로 수행하는 사례</li><li><a href="../reference/dbms-flow.html">DBMS 데이터 흐름 요약</a></li><li><a href="0001-sql-to-data-flow.html">첫 수업: SQL에서 데이터까지</a></li></ul></section>
+<footer>헷갈리는 부분이 있으면 질문해 주세요. 다음에는 이 논리 계획을 실제 실행 방법(순차 스캔이나 인덱스 스캔)으로 고르는 과정을 이어서 배울 수 있어요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. Filter가 조건에 맞지 않는 행을 걸러냅니다.':'다시 연결해 보세요. 조건을 검사해 행을 통과시키는 연산을 떠올려 보세요.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

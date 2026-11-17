@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>트랜잭션과 복구</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 일곱 번째 수업 · 4분</div><h1>쓰는 도중 꺼져도<br>안전하게</h1><p class="lede">트랜잭션은 여러 데이터 변경을 하나의 작업처럼 다루고, 실패했을 때 되돌릴 수 있게 합니다.</p></header>
+<section><h2>트랜잭션이 필요한 상황</h2><p>계좌 A에서 10원을 빼고 계좌 B에 10원을 더한다고 해봅시다. A에서 빼기는 성공했는데 프로그램이 중간에 멈추면 돈이 사라진 상태가 됩니다.</p><pre>BEGIN
+  A에서 10 빼기
+  B에 10 더하기
+COMMIT</pre><p>트랜잭션은 둘 다 성공해 확정되거나, 실패하면 둘 다 취소되도록 묶습니다. 이것이 원자성의 직관입니다.</p></section>
+<section><h2>로그로 되돌리거나 다시 적용</h2><p>DBMS는 변경 내용을 안전하게 기록해 둔 뒤 데이터 페이지를 바꾸거나, 변경한 내용을 로그에 먼저 쓴 뒤 나중에 데이터 파일에 반영할 수 있습니다. 대표적인 방식은 롤백 저널과 WAL(Write-Ahead Log)입니다.</p><div class="card"><p><b>롤백 저널:</b> 바꾸기 전의 정보를 별도 저널에 보관합니다. 중간에 실패하면 저널로 원래 상태를 복원합니다.</p><p><b>WAL:</b> 변경 내용을 먼저 로그 파일에 기록합니다. 복구 시 로그 내용을 재생해 데이터베이스 상태를 복원할 수 있습니다.</p></div><p>SQLite는 기본적으로 롤백 저널을 사용하며 WAL 모드도 제공합니다. WAL에서는 커밋된 변경이 나중에 데이터베이스 파일로 합쳐지는 체크포인트 과정이 있습니다. <a href="https://www.sqlite.org/atomiccommit.html">SQLite 원자적 커밋</a> · <a href="https://www.sqlite.org/wal.html">SQLite WAL</a></p></section>
+<section><h2>현재 프로젝트와 비교</h2><p><code>db_append()</code>는 한 행을 직렬화해 <code>.rows</code> 파일 끝에 씁니다. 하지만 트랜잭션 로그, 커밋·롤백, 재시작 후 복구 기능은 없습니다. 따라서 쓰기가 중간에 끊기면 마지막 행 일부만 기록될 가능성을 처리하는 복구 장치가 마련돼 있지 않습니다.</p><p class="muted">이건 현재 구현의 단순화예요. 실제 DBMS에서는 저장소 계층이 저널/WAL과 커밋 절차를 관리해 장애 후에도 일관된 상태로 돌아오도록 합니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p>WAL 방식에서 변경 내용은 보통 데이터 파일을 고치기 전에 어디에 먼저 기록되나요?</p><button onclick="answer(false)">SQL 파서 메모리</button><button onclick="answer(true)">WAL 로그 파일</button><button onclick="answer(false)">인덱스 리프만</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>더 읽기</h2><ul><li><a href="https://www.sqlite.org/atomiccommit.html">SQLite Atomic Commit</a> — 롤백 저널과 중단 후 복구</li><li><a href="https://www.sqlite.org/wal.html">SQLite Write-Ahead Logging</a> — WAL과 체크포인트</li><li><a href="../reference/dbms-flow.html">DBMS 데이터 흐름 요약</a></li><li><a href="0006-btree-index.html">이전 수업: B+트리 인덱스</a></li></ul></section>
+<footer>다음으로는 읽기와 쓰기가 동시에 일어날 때 서로의 작업을 어떻게 보호하는지, 즉 잠금과 동시성 제어를 볼 수 있어요. 헷갈리는 용어는 편하게 질문해 주세요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. 변경 기록을 WAL에 먼저 남깁니다.':'WAL은 Write-Ahead Log의 약자예요. 데이터 파일 반영 전에 변경 로그를 기록합니다.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

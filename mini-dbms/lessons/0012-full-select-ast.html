@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SELECT 전체를 AST로 표현하기</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 열두 번째 수업 · 5분</div><h1>조건만 말고<br>SELECT 전체를 담기</h1><p class="lede">AST를 중간 결과로 두면 SQL 파싱과 실제 실행을 분리할 수 있습니다.</p></header>
+<section><h2>현재는 WHERE 조건만 구조화</h2><p>현재 코드의 <code>Expr</code>는 <code>age &gt;= 18</code> 같은 비교나 AND/OR 연결을 표현합니다. 하지만 SELECT 컬럼 목록, 테이블 이름, 문장 전체를 한 객체에 담지는 않아요. <code>select_rows()</code>가 SQL을 읽으면서 곧바로 파일을 열고 실행합니다.</p><pre>SELECT name FROM people WHERE age &gt;= 18;
+                      └── 현재 구조화되는 부분: age &gt;= 18</pre></section>
+<section><h2>문장 전체 AST의 모양</h2><p>파싱 결과를 하나의 <code>SelectStmt</code>에 모은다고 생각해 봅시다.</p><pre>struct SelectStmt {
+    char *table_name;       // "people"
+    size_t projection[];    // [name 컬럼]
+    Expr *where;            // age >= 18 조건 트리
+};</pre><p>그러면 파서의 일은 이 구조를 만드는 데서 끝납니다. 이 단계에서는 아직 <code>.rows</code> 파일을 열지 않아요.</p></section>
+<section><h2>왜 중간 구조를 둘까?</h2><div class="card"><p><b>파서:</b> SQL 문법을 읽어 AST를 만든다.</p><p><b>검증기:</b> 테이블과 컬럼이 존재하는지, 타입이 맞는지 확인한다.</p><p><b>계획기:</b> AST를 Scan/Filter/Project 같은 논리 작업으로 바꾼다.</p><p><b>실행기:</b> 선택된 계획을 실제 저장소에서 수행한다.</p></div><p>각 단계가 다음 단계에 명확한 자료를 넘겨주므로, 파서를 바꾸거나 인덱스 계획을 추가해도 한 함수의 모든 일을 다시 고칠 필요가 줄어듭니다.</p></section>
+<section><h2>흐름 비교</h2><pre>현재:
+SQL 읽기 + 검증 + 파일 스캔 + 필터 + 출력
+                 대부분 select_rows()에서 진행
+
+분리한 설계:
+SQL → SelectStmt AST → 논리 계획 → 물리 계획 → 실행기</pre><p>AST는 실행 계획 자체가 아닙니다. AST는 SQL 문장의 구조이고, 논리 계획은 그 구조가 뜻하는 데이터 연산입니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p>문장 전체 AST를 만든 뒤에는 파서가 곧바로 행 파일을 읽어야 할까요?</p><button onclick="answer(false)">그래야 AST가 완성된다</button><button onclick="answer(true)">아니요, AST 생성과 실행은 분리할 수 있다</button><button onclick="answer(false)">AST가 B+트리를 대신한다</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>더 읽기</h2><ul><li><a href="https://www.sqlite.org/arch.html">SQLite 아키텍처</a> — 파서가 parse tree를 만들고 이후 코드 생성이 분석하는 구조</li><li><a href="../src/engine.c">src/engine.c</a> — 현재 <code>Parser</code>, <code>Expr</code>, <code>select_rows()</code></li><li><a href="../src/db.h">src/db.h</a> — 테이블과 행 구조</li><li><a href="0011-engine-function-map.html">이전 수업: 엔진 함수들의 호출 흐름</a></li></ul></section>
+<footer>이제 AST는 파서와 계획기 사이의 전달 자료라고 보면 됩니다. 다음에는 이 AST에서 논리 계획 노드를 어떤 순서로 만드는지 더 구체적으로 연습할 수 있어요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. 파서는 구문 구조를 만들고, 실행은 다음 단계가 맡을 수 있습니다.':'AST는 문장을 표현하는 구조예요. 파일 읽기나 인덱스 탐색은 별도 단계에서 수행할 수 있습니다.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

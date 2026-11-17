@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>논리 계획에서 실제 실행으로</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 세 번째 수업 · 4분</div><h1>계획을 실제로<br>실행하기</h1><p class="lede">논리 계획의 작업을 저장소에서 수행하는 구체적인 방법, 즉 물리 실행을 살펴봅니다.</p></header>
+<section><h2>논리 계획은 “무엇을”, 물리 계획은 “어떻게”</h2><p>앞 수업의 조회는 논리적으로 다음 작업이었죠.</p><pre>Project[name]
+└── Filter[age &gt;= 18]
+    └── Scan[people]</pre><p><code>Scan[people]</code>을 실제로 수행하는 방법은 여러 가지일 수 있습니다.</p><div class="card"><p><b>순차 스캔 (Seq Scan)</b><br>파일의 첫 행부터 끝까지 차례로 읽는다.</p><p><b>인덱스 스캔 (Index Scan)</b><br>인덱스에서 조건에 맞는 행 위치를 찾은 뒤 해당 행을 읽는다.</p></div><p>두 방식은 같은 결과를 만들 수 있지만, 읽는 데이터의 양과 접근 방식이 다릅니다.</p></section>
+<section><h2>현재 프로젝트는 순차 스캔</h2><p><code>select_rows()</code>는 <code>people.rows</code> 파일을 열고, <code>db_read()</code>로 행을 하나씩 읽습니다. 각 행은 <code>matches()</code>에서 필터링되고, 조건을 통과한 행에서 요청된 컬럼만 출력됩니다.</p><pre>파일 열기
+  ↓
+db_read() ── 다음 행 읽기
+  ↓
+matches() ── age &gt;= 18 인가?
+  ├─ 아니오: 버림
+  └─ 예: name 컬럼 출력
+  ↓
+파일 끝까지 반복</pre><p>이것은 물리 실행이에요. “테이블을 읽는다”는 논리 작업을 “파일을 앞에서부터 한 행ずつ 읽는다”는 구체적 방법으로 수행합니다.</p></section>
+<section><h2>인덱스가 있으면 언제나 빠를까?</h2><p>아니에요. 조건에 맞는 행이 아주 많다면 인덱스로 여기저기 이동하며 행을 읽는 것보다 파일을 한 번 쭉 읽는 편이 더 쌀 수 있어요. 그래서 DBMS는 테이블 크기, 인덱스, 값 분포 같은 정보를 이용해 실행 방법을 추정합니다. SQLite의 <a href="https://www.sqlite.org/queryplanner.html">쿼리 계획 문서</a>는 인덱스를 이용한 검색과 정렬 사례를 보여 줍니다.</p><p class="muted">현재 미니 DBMS에는 인덱스와 비용 기반 최적화기가 없어서 선택지가 하나뿐입니다. 항상 순차 스캔을 합니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p>현재 코드에서 <code>.rows</code>를 실제로 차례대로 읽는 함수는 무엇인가요?</p><button onclick="answer(false)">matches()</button><button onclick="answer(false)">parse_atom()</button><button onclick="answer(true)">db_read()</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>더 읽기</h2><ul><li><a href="https://www.sqlite.org/queryplanner.html">SQLite Query Planning</a> — 인덱스와 테이블 스캔을 비교</li><li><a href="../reference/dbms-flow.html">DBMS 데이터 흐름 요약</a></li><li><a href="0002-ast-to-logical-plan.html">이전 수업: AST에서 논리 계획으로</a></li></ul></section>
+<footer>좋은 질문이에요. 다음에는 “비용을 모르는데 최적화기는 어떻게 고르나?”를 통계와 추정 행 수로 이어서 배울 수 있어요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. db_read()가 저장 파일에서 다음 행을 복원합니다.':'조건을 해석하거나 검사하는 함수와, 파일에서 행을 읽는 함수를 구분해 보세요.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

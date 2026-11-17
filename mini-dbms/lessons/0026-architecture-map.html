@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>미니 DBMS 전체 아키텍처</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 스물여섯 번째 수업 · 마무리</div><h1>SQL에서 파일까지<br>전체 구조 한눈에</h1><p class="lede">실제 DBMS의 주요 역할을 현재 프로젝트의 함수·파일과 연결해 지금까지의 흐름을 정리합니다.</p></header>
+<section><h2>실제 DBMS의 개념적 흐름</h2><pre>SQL
+ ↓
+파서 → AST → 이름/타입 검증
+ ↓
+논리 계획 → 최적화 → 물리 실행 계획
+ ↓
+실행기 연산자 (SeqScan / IndexScan / Filter / Project ...)
+ ↓
+저장 계층 (페이지 캐시 / B+트리 / 인덱스 / 트랜잭션 로그)
+ ↓
+데이터 파일</pre><p>실제 제품마다 계층 이름과 경계는 다르지만, 역할을 나눠 보면 SQL 의미를 해석하고, 실행 방법을 선택하고, 데이터를 안전하게 읽고 쓰는 큰 흐름이 보입니다. <a href="https://www.sqlite.org/arch.html">SQLite 아키텍처</a></p></section>
+<section><h2>현재 프로젝트에서의 대응</h2><pre>SQL 파일 ── main()                         [구현]
+             ↓
+db_execute() / next() / insert() / select_rows() [구현]
+             ↓
+WHERE Expr + matches()                     [구현]
+             ↓
+select_rows()의 파일 반복문                 [순차 스캔]
+             ↓
+db_read() / db_append()                    [구현]
+             ↓
+.schema / .rows 파일                        [저장 형식]</pre><p><code>db_table_open()</code>은 사람이 준비한 `.schema` 파일을 읽어 테이블 정의를 메모리에 올립니다. <code>db_read()</code>는 `.rows`의 길이 접두부 형식에서 행을 복원하고, <code>db_append()</code>는 새 행을 직렬화해 덧붙입니다.</p></section>
+<section><h2>개념은 배웠지만 아직 없는 코드</h2><div class="card"><p>SELECT 전체 AST, 독립된 논리 계획과 물리 계획</p><p>비용 추정과 통계 테이블, EXPLAIN 출력</p><p>B+트리 인덱스와 페이지 캐시</p><p>시스템 카탈로그를 DBMS가 관리하는 CREATE/ALTER</p><p>WAL/롤백 저널 기반 복구와 동시성 제어</p><p>독립된 실행 연산자(iterator, push, vectorized execution)</p></div><p>이 항목들은 앞에서 실제 DBMS의 개념으로 살펴봤지만, 현재 미니 DBMS에 구현된 기능은 아닙니다.</p></section>
+<section><h2>한 문장으로 설명해 보기</h2><p>이 프로젝트의 SELECT는 <code>select_rows()</code>가 SQL을 처리해 테이블 스키마를 읽고, `.rows`를 순차적으로 복원한 다음 WHERE 조건을 검사해 요청된 컬럼을 출력합니다. 별도 최적화기나 인덱스 없이 직접 실행하는 구조입니다.</p><p>이 한 문장에 파싱, 테이블 정의, 스캔, 필터, 프로젝션, 저장 형식을 담을 수 있다면 기본 아키텍처 흐름을 설명할 수 있는 거예요.</p></section>
+<section class="card"><h2 style="margin-top:0">마지막 확인</h2><p>현재 프로젝트에서 <code>age</code> 조건에 맞는 행을 빠르게 찾는 B+트리 인덱스가 있나요?</p><button onclick="answer(false)">네, db_read() 안에 있다</button><button onclick="answer(true)">아니요, 파일 전체를 순차 스캔한다</button><button onclick="answer(false)">네, people.schema가 인덱스다</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>계속 깊게 볼 수 있는 갈래</h2><ul><li>원하는 기능을 코드로 설계: AST, 논리 계획, iterator 연산자</li><li>저장 엔진: 페이지 레이아웃, B+트리, 버퍼 풀</li><li>안정성: WAL, 복구, 트랜잭션, 잠금</li><li>쿼리 성능: 통계, 비용 추정, EXPLAIN</li></ul></section>
+<footer>핵심 아키텍처 학습의 첫 바퀴를 마쳤어요. 이후에는 궁금한 갈래를 골라 코드와 함께 더 깊게 공부하면 됩니다.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. 현재는 db_read()로 .rows 전체를 순차 스캔하고 인덱스가 없습니다.':'people.schema는 컬럼 구조를 설명하는 파일이지 검색 인덱스가 아닙니다.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

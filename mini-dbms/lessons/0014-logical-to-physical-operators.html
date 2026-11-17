@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>논리 연산에서 물리 연산으로</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 열네 번째 수업 · 5분</div><h1>논리 계획을<br>실행 방법으로 바꾸기</h1><p class="lede">논리 계획이 말하는 작업을 저장 계층이 실제로 수행할 수 있는 물리 연산자로 구체화합니다.</p></header>
+<section><h2>입력: 논리 계획</h2><pre>Project[name]
+└── Filter[age >= 18]
+    └── Scan[people]</pre><p>이 계획은 결과의 의미를 표현하지만, 아직 어떤 파일·인덱스를 어떻게 읽을지는 정하지 않았습니다.</p></section>
+<section><h2>Scan을 구체적인 방법으로 바꾸기</h2><div class="card"><p><b>SeqScan(people)</b> — 테이블 파일을 처음부터 차례로 읽는다.</p><p><b>IndexScan(age_idx)</b> — age 인덱스에서 조건 범위를 찾고 관련 행을 가져온다.</p></div><p>두 물리 계획 모두 같은 논리 작업을 구현할 수 있어요.</p><pre>Project[name]                    Project[name]
+└── Filter[age >= 18]            └── Filter[age >= 18]
+    └── SeqScan[people.rows]          └── IndexScan[age_idx]</pre></section>
+<section><h2>최적화기가 고르는 지점</h2><p>최적화기는 테이블 크기, 인덱스 존재 여부, 조건이 남길 행 수 추정 등을 사용해 후보 비용을 비교합니다. 조건에 맞는 행이 적으면 인덱스가 이길 수 있고, 거의 모든 행이 필요하면 순차 스캔이 이길 수 있습니다.</p><p>실행기는 선택된 노드들을 실제로 수행합니다. 예를 들어 <code>SeqScan.next()</code>는 다음 행을 읽고, <code>Filter.next()</code>는 조건을 통과한 행이 나올 때까지 입력에서 행을 요청하며, <code>Project.next()</code>는 필요한 컬럼만 내보낼 수 있습니다.</p></section>
+<section><h2>현재 코드에서 대응되는 부분</h2><p>현재 <code>select_rows()</code>의 행 읽기 반복문은 사실상 <code>SeqScan</code> 동작입니다. <code>db_read()</code>가 다음 행을 읽고, <code>matches()</code>가 Filter 역할을 하며, <code>projection</code> 배열과 출력 코드가 Project 역할을 합니다.</p><pre>select_rows() 반복문
+  db_read()                   ≈ SeqScan에서 다음 행
+  matches()                   ≈ Filter
+  projection[i] 출력          ≈ Project</pre><p>다만 이들은 독립 실행 연산자 객체로 나뉘지 않고, 하나의 함수 안에 직접 결합돼 있습니다. 인덱스 저장 구조도 없어서 <code>IndexScan</code> 후보는 만들 수 없습니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p>현재 코드의 <code>db_read()</code> 반복 호출은 어떤 물리 연산자에 가장 가깝나요?</p><button onclick="answer(true)">SeqScan</button><button onclick="answer(false)">IndexScan</button><button onclick="answer(false)">Sort</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>더 읽기</h2><ul><li><a href="https://www.sqlite.org/queryplanner.html">SQLite Query Planning</a> — 인덱스와 테이블 스캔의 선택</li><li><a href="../src/engine.c">src/engine.c</a> — 현재 스캔·필터·프로젝션이 결합된 코드</li><li><a href="0013-build-logical-plan.html">이전 수업: AST를 논리 계획으로</a></li><li><a href="0004-cost-estimation.html">복습: 비용 추정</a></li></ul></section>
+<footer>여기서 논리 계획은 “무엇을”, 물리 연산자는 “어떤 방식으로”를 뜻합니다. 다음에는 이 연산자들을 실제 인터페이스와 자료구조로 나누면 어떤 모양인지 살펴볼 수 있어요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. db_read()를 반복해 파일을 끝까지 훑는 동작은 SeqScan에 해당합니다.':'인덱스가 없어 위치를 바로 찾지 않고, 행 파일을 차례로 읽습니다.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>

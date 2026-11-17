@@ -1,0 +1,5 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DBMS 흐름 요약</title><link rel="stylesheet" href="../assets/style.css"></head><body><main class="page"><header><div class="eyebrow">빠른 참고</div><h1>DBMS 데이터 흐름</h1><p class="lede">SQL 문장이 실제 데이터 접근으로 바뀌는 기본 순서</p></header><div class="card flow">SQL → 파싱 → 논리 계획 → 최적화 → 물리 실행 → 저장소</div><h2>용어</h2><p><b>파싱:</b> 문법을 읽어 문장 구조(AST)를 만든다.</p><p><b>논리 계획:</b> 필요한 관계 연산을 표현한다. 예: Scan → Filter → Project.</p><p><b>최적화:</b> 같은 결과를 내는 실행 방법 중 예상 비용이 낮은 방식을 고른다.</p><p><b>물리 실행:</b> 선택된 방법을 연산자로 수행한다.</p><p><b>저장소:</b> 파일, 페이지 캐시, B-tree/인덱스 등을 통해 실제 행을 읽고 쓴다.</p><h2>미니 DBMS 대응</h2><pre>main.c        SQL 파일 입력
+engine.c      토큰화, 파싱, WHERE 조건, 실행 흐름
+storage.c     스키마 파일과 행 파일 접근
+*.schema      테이블 구조
+*.rows        직렬화된 행 데이터</pre><p class="muted">현재 구현은 논리 계획/최적화/페이지 캐시를 따로 두지 않는다. SELECT는 행 파일 순차 스캔으로 실행한다.</p><p><a href="../lessons/0001-sql-to-data-flow.html">첫 수업으로 돌아가기</a></p></main></body></html>

@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>스키마와 카탈로그</title><link rel="stylesheet" href="../assets/style.css"></head>
+<body><main class="page"><header><div class="eyebrow">미니 DBMS · 스물세 번째 수업 · 4분</div><h1>스키마와 카탈로그는<br>어떻게 다를까?</h1><p class="lede">테이블 하나의 구조와, 데이터베이스가 모든 객체의 구조를 기록하는 장부를 구분해 봅니다.</p></header>
+<section><h2>스키마: 테이블의 설계</h2><p>이 프로젝트의 <code>people.schema</code>는 테이블 컬럼과 타입을 적어 둡니다.</p><pre>id INTEGER
+name TEXT
+age INTEGER</pre><p>이 정보가 있어야 프로그램은 각 행에 어떤 값이 몇 개 있고, 정수와 문자를 어떻게 검사할지 알 수 있어요.</p></section>
+<section><h2>카탈로그: 데이터베이스 객체의 장부</h2><p>시스템 카탈로그는 DBMS가 관리하는 메타데이터 저장소입니다. 테이블뿐 아니라 인덱스, 뷰 같은 객체와 그 정의를 기록할 수 있습니다.</p><p>SQLite는 데이터베이스 파일 안에 <code>sqlite_schema</code>라는 특별한 테이블을 두고 테이블·인덱스·뷰·트리거 등의 정의를 기록합니다. <code>CREATE TABLE</code> 같은 명령을 실행하면 SQLite가 이 장부를 갱신합니다. <a href="https://www.sqlite.org/schematab.html">SQLite Schema Table 문서</a></p></section>
+<section><h2>그러면 people.schema도 카탈로그인가?</h2><p><b>메타데이터를 저장한다는 넓은 의미에서는 카탈로그 역할의 일부를 합니다.</b> 앞서 “카탈로그가 없다”고만 말한 건 너무 단순화한 설명이었어요.</p><p>정확한 차이는 관리 방식입니다. 현재는 사람이 테이블마다 <code>.schema</code> 파일을 준비하고, <code>db_table_open()</code>이 필요한 파일을 직접 읽습니다. SQLite 같은 DBMS는 내부 카탈로그를 DBMS가 직접 관리하고 SQL의 DDL 명령으로 갱신합니다.</p><pre>현재 프로젝트:
+사람이 people.schema 작성 → DBMS 코드가 파일을 읽음
+
+일반 DBMS:
+CREATE TABLE 실행 → DBMS가 카탈로그에 구조 기록
+                → 이후 쿼리가 카탈로그에서 구조 확인</pre></section>
+<section><h2>CREATE와 ALTER가 생기면?</h2><p><code>CREATE TABLE</code>은 테이블 정의를 카탈로그에 등록하고 데이터 저장 공간을 준비하는 명령이 됩니다. <code>ALTER TABLE</code>은 카탈로그의 정의를 바꾸며, 변경 종류에 따라 기존 행을 어떻게 해석하거나 변환할지도 처리해야 합니다.</p><p>현재 파일 구조를 유지하는 간단한 구현이라면 CREATE가 <code>.schema</code>를 만들고 ALTER가 이를 수정할 수 있습니다. 다만 기존 <code>.rows</code>의 컬럼 순서·값 형식과 새 스키마가 맞도록 보장해야 합니다.</p></section>
+<section class="card"><h2 style="margin-top:0">확인해 보기</h2><p>현재 프로젝트에서 테이블 구조를 직접 저장하는 파일은?</p><button onclick="answer(false)">people.rows</button><button onclick="answer(true)">people.schema</button><button onclick="answer(false)">engine.c</button><p id="feedback" aria-live="polite"></p></section>
+<section><h2>더 읽기</h2><ul><li><a href="https://www.sqlite.org/schematab.html">SQLite Schema Table</a> — 데이터베이스 내부 메타데이터 테이블</li><li><a href="../src/storage.c">src/storage.c</a> — <code>db_table_open()</code>이 스키마 파일을 읽는 코드</li><li><a href="../src/db.h">src/db.h</a> — <code>DbTable</code>과 <code>DbColumn</code></li><li><a href="0022-read-row-and-select.html">이전 수업: 바이트에서 SELECT 결과까지</a></li></ul></section>
+<footer>간단히 기억하면, 스키마는 테이블 구조 정보이고 카탈로그는 DBMS가 여러 객체의 구조 정보를 관리하는 장부입니다. 이 프로젝트의 .schema 파일은 그 역할을 수동 파일 방식으로 일부 맡고 있어요.</footer></main><script>function answer(ok){document.getElementById('feedback').textContent=ok?'맞아요. people.schema에 컬럼 이름과 타입이 적혀 있습니다.':'rows 파일은 실제 행 값, schema 파일은 행 구조를 설명합니다.';document.getElementById('feedback').style.color=ok?'#176b60':'#9a4c2f'}</script></body></html>
