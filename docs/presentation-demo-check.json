@@ -1,0 +1,12 @@
+{
+  "base_records": 1000000,
+  "indexed_scanned": 1,
+  "linear_scanned": 1000001,
+  "indexed_http_ms": 0.4353890035417862,
+  "linear_http_ms": 730.7296569997561,
+  "concurrent_inserted": 24,
+  "verified": 24,
+  "scanned_unit": "records within one DB file, not number of files",
+  "auto_run_seconds": 2.491,
+  "conditions": "Live HTTP round-trip including connection and client decoding; one pair, warm OS cache; no presenter pauses"
+}

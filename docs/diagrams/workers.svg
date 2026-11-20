@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="380" viewBox="0 0 1200 380" role="img" aria-labelledby="title desc">
+<title id="title">스레드 풀은 요청을 나누고 읽기·쓰기 락은 공유 데이터를 보호한다</title><desc id="desc">여러 HTTP 요청이 대기열을 거쳐 재사용 작업 스레드 네 개에 배분된다. 읽기·쓰기 락 하나를 사용해 여러 SELECT는 함께 실행하고 INSERT는 단독 실행한다.</desc>
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="#547065"/></marker></defs>
+<rect width="1200" height="380" rx="14" fill="#f6f8f5"/>
+<g font-family="Malgun Gothic,Apple SD Gothic Neo,Noto Sans CJK KR,sans-serif" fill="#18382d">
+<text x="42" y="53" font-size="32" font-weight="700">작업을 나누는 것과, 데이터를 보호하는 것은 별개</text>
+<rect x="42" y="133" width="180" height="137" rx="10" fill="#fff" stroke="#c2cec5"/><text x="64" y="181" font-size="27" font-weight="700">여러 요청</text><text x="64" y="226" font-size="24">HTTP SQL</text>
+<path d="M230 202 H270" stroke="#547065" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="284" y="133" width="140" height="137" rx="10" fill="#fff" stroke="#c2cec5"/><text x="309" y="181" font-size="27" font-weight="700">대기열</text><text x="309" y="226" font-size="23">순서 대기</text>
+<path d="M432 202 H473" stroke="#547065" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="487" y="126" width="139" height="65" rx="8" fill="#e3f1e9"/><rect x="642" y="126" width="139" height="65" rx="8" fill="#e3f1e9"/>
+<rect x="487" y="212" width="139" height="65" rx="8" fill="#e3f1e9"/><rect x="642" y="212" width="139" height="65" rx="8" fill="#e3f1e9"/>
+<text x="506" y="168" font-size="25">작업자 1</text><text x="661" y="168" font-size="25">작업자 2</text><text x="506" y="254" font-size="25">작업자 3</text><text x="661" y="254" font-size="25">작업자 4</text>
+<path d="M793 202 H836" stroke="#547065" stroke-width="3" marker-end="url(#arrow)"/>
+<rect x="850" y="120" width="308" height="165" rx="10" fill="#fff" stroke="#81aa94"/>
+<text x="875" y="163" font-size="28" font-weight="700">읽기·쓰기 락 하나</text><text x="875" y="210" font-size="25">SELECT: 함께 읽기</text><text x="875" y="252" font-size="25">INSERT: 단독 쓰기</text>
+<text x="42" y="337" font-size="25" font-weight="700">스레드 풀: 요청 분배·재사용  /  락: 파일·인덱스·동기화 보호</text>
+</g></svg>
