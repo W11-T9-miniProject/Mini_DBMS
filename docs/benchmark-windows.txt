@@ -1,0 +1,17 @@
+records=1000000
+queries=30
+seed=20261116
+batch_size=1000
+sync_writes=true
+insert_seconds=5.202646
+rebuild_seconds=0.983637
+file_bytes=208000016
+index_height=5
+index_nodes=66405
+index_memory_bytes=53128048
+cache=warm (OS cache is not dropped)
+query,median_ms,p95_ms
+id_index,0.233950,0.456000
+same_id_forced_scan,389.609700,649.987000
+unique_name_scan,405.715950,561.420600
+correctness=PASS (every query returned exactly the expected ID; examined counts verified)

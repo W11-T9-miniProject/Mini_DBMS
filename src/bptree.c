@@ -2,126 +2,232 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MAX_KEYS 31
-typedef struct node {
-    unsigned count;
-    int leaf;
-    uint64_t keys[MAX_KEYS + 1];
-    union { uint64_t offsets[MAX_KEYS + 1]; struct node *children[MAX_KEYS + 2]; } data;
-    struct node *next;
-} node;
-struct bptree { node *root, *spares; size_t height, spare_count; };
+/* One extra key/child slot permits a temporary overflow before splitting. */
+#define BPT_MAX_KEYS 31
+#define BPT_OVERFLOW_KEYS (BPT_MAX_KEYS + 1)
 
-bpt_status bpt_create(bptree **out) {
-    if (!out) return BPT_INVALID;
-    *out = calloc(1, sizeof(bptree));
-    return *out ? BPT_OK : BPT_NO_MEMORY;
-}
-static void free_node(node *n) {
-    if (!n) return;
-    if (!n->leaf) for (unsigned i = 0; i <= n->count; ++i) free_node(n->data.children[i]);
-    free(n);
-}
-void bpt_destroy(bptree *tree) {
-    if (!tree) return;
-    free_node(tree->root);
-    while (tree->spares) { node *n = tree->spares; tree->spares = n->next; free(n); }
-    free(tree);
-}
-bpt_status bpt_prepare(bptree *tree) {
-    if (!tree) return BPT_INVALID;
-    /* One right sibling per level plus a possible new root; no allocation during mutation. */
-    while (tree->spare_count < tree->height + 2) {
-        node *n = calloc(1, sizeof(node));
-        if (!n) return BPT_NO_MEMORY;
-        n->next = tree->spares; tree->spares = n; tree->spare_count++;
+struct BptNode {
+    bool leaf;
+    size_t count;
+    uint64_t keys[BPT_OVERFLOW_KEYS];
+    uint64_t values[BPT_OVERFLOW_KEYS];
+    struct BptNode *children[BPT_OVERFLOW_KEYS + 1];
+    struct BptNode *next;
+};
+
+typedef struct { bool occurred; uint64_t separator; BptNode *right; } Split;
+
+static size_t find_key_position(const BptNode *node, uint64_t key, bool upper) {
+    size_t left = 0, right = node->count;
+    while (left < right) {
+        size_t middle = left + (right - left) / 2;
+        if (node->keys[middle] < key || (upper && node->keys[middle] == key))
+            left = middle + 1;
+        else right = middle;
     }
-    return BPT_OK;
+    return left;
 }
-static node *take_node(bptree *tree, int leaf) {
-    node *n = tree->spares;
-    tree->spares = n->next; tree->spare_count--;
-    memset(n, 0, sizeof(*n)); n->leaf = leaf;
-    return n;
+
+static BptNode *allocate_node(bool leaf) {
+    BptNode *node = calloc(1, sizeof(*node));
+    if (node) node->leaf = leaf;
+    return node;
 }
-/* Upper bound: equality follows the right-hand child of an internal separator. */
-static unsigned child_index(const node *n, uint64_t key) {
-    unsigned low = 0, high = n->count;
-    while (low < high) {
-        unsigned mid = low + (high-low)/2;
-        if (key >= n->keys[mid]) low = mid + 1; else high = mid;
+
+bool bptree_init(Bptree *tree) {
+    memset(tree, 0, sizeof(*tree));
+    tree->root = allocate_node(true);
+    if (!tree->root) return false;
+    tree->height = 1;
+    tree->node_count = 1;
+    return true;
+}
+
+static void destroy_node(BptNode *node) {
+    if (!node) return;
+    if (!node->leaf)
+        for (size_t i = 0; i <= node->count; ++i) destroy_node(node->children[i]);
+    free(node);
+}
+
+void bptree_destroy(Bptree *tree) {
+    destroy_node(tree->root);
+    while (tree->spares) {
+        BptNode *next = tree->spares->next;
+        free(tree->spares);
+        tree->spares = next;
     }
-    return low;
+    memset(tree, 0, sizeof(*tree));
 }
-bpt_status bpt_find(const bptree *tree, uint64_t key, uint64_t *offset, size_t *visited) {
-    if (visited) *visited = 0;
-    if (!tree || !offset) return BPT_INVALID;
-    const node *n = tree->root;
-    while (n) {
-        if (visited) (*visited)++;
-        if (!n->leaf) { n = n->data.children[child_index(n, key)]; continue; }
-        unsigned low = 0, high = n->count;
-        while (low < high) {
-            unsigned mid = low + (high-low)/2;
-            if (n->keys[mid] < key) low = mid + 1; else high = mid;
-        }
-        if (low == n->count || n->keys[low] != key) return BPT_NOT_FOUND;
-        *offset = n->data.offsets[low]; return BPT_OK;
+
+bool bptree_find(const Bptree *tree, uint64_t key, uint64_t *value) {
+    const BptNode *node = tree->root;
+    if (!node) return false;
+    while (!node->leaf) node = node->children[find_key_position(node, key, true)];
+    size_t position = find_key_position(node, key, false);
+    if (position == node->count || node->keys[position] != key) return false;
+    if (value) *value = node->values[position];
+    return true;
+}
+
+/* Reserve enough nodes for a split at every level plus a new root.
+ * Reusable spare nodes avoid allocating on every insertion. */
+static bool reserve_split_nodes(Bptree *tree) {
+    while (tree->spare_count < tree->height + 1) {
+        BptNode *node = allocate_node(false);
+        if (!node) return false;
+        node->next = tree->spares;
+        tree->spares = node;
+        ++tree->spare_count;
     }
-    return BPT_NOT_FOUND;
+    return true;
 }
-/* Returns a new right sibling and the separator to insert in the parent, or NULL. */
-static node *insert_node(bptree *tree, node *n, uint64_t key, uint64_t offset, uint64_t *separator) {
-    unsigned i = 0;
-    if (n->leaf) {
-        while (i < n->count && n->keys[i] < key) i++;
-        for (unsigned j = n->count; j > i; --j) {
-            n->keys[j] = n->keys[j-1]; n->data.offsets[j] = n->data.offsets[j-1];
-        }
-        n->keys[i] = key; n->data.offsets[i] = offset; n->count++;
+
+static BptNode *take_split_node(Bptree *tree, bool leaf) {
+    BptNode *node = tree->spares;
+    tree->spares = node->next;
+    --tree->spare_count;
+    ++tree->node_count;
+    memset(node, 0, sizeof(*node));
+    node->leaf = leaf;
+    return node;
+}
+
+static Split split_leaf(Bptree *tree, BptNode *left) {
+    BptNode *right = take_split_node(tree, true);
+    size_t middle = left->count / 2;
+    right->count = left->count - middle;
+    memcpy(right->keys, left->keys + middle, right->count * sizeof(uint64_t));
+    memcpy(right->values, left->values + middle, right->count * sizeof(uint64_t));
+    left->count = middle;
+    right->next = left->next;
+    left->next = right;
+    return (Split){true, right->keys[0], right};
+}
+
+static Split split_internal(Bptree *tree, BptNode *left) {
+    BptNode *right = take_split_node(tree, false);
+    size_t middle = left->count / 2;
+    uint64_t separator = left->keys[middle];
+    right->count = left->count - middle - 1;
+    memcpy(right->keys, left->keys + middle + 1, right->count * sizeof(uint64_t));
+    memcpy(right->children, left->children + middle + 1,
+           (right->count + 1) * sizeof(BptNode *));
+    left->count = middle;
+    return (Split){true, separator, right};
+}
+
+static Split insert_into_node(Bptree *tree, BptNode *node, uint64_t key, uint64_t value) {
+    size_t position = find_key_position(node, key, !node->leaf);
+    if (node->leaf) {
+        memmove(node->keys + position + 1, node->keys + position,
+                (node->count - position) * sizeof(uint64_t));
+        memmove(node->values + position + 1, node->values + position,
+                (node->count - position) * sizeof(uint64_t));
+        node->keys[position] = key;
+        node->values[position] = value;
     } else {
-        i = child_index(n, key);
-        uint64_t promoted;
-        node *right = insert_node(tree, n->data.children[i], key, offset, &promoted);
-        if (!right) return NULL;
-        for (unsigned j = n->count; j > i; --j) {
-            n->keys[j] = n->keys[j-1]; n->data.children[j+1] = n->data.children[j];
+        Split child = insert_into_node(tree, node->children[position], key, value);
+        if (!child.occurred) return (Split){0};
+        memmove(node->keys + position + 1, node->keys + position,
+                (node->count - position) * sizeof(uint64_t));
+        memmove(node->children + position + 2, node->children + position + 1,
+                (node->count - position) * sizeof(BptNode *));
+        node->keys[position] = child.separator;
+        node->children[position + 1] = child.right;
+    }
+    ++node->count;
+    if (node->count <= BPT_MAX_KEYS) return (Split){0};
+    return node->leaf ? split_leaf(tree, node) : split_internal(tree, node);
+}
+
+bool bptree_insert(Bptree *tree, uint64_t key, uint64_t value) {
+    if (!tree->root || bptree_find(tree, key, NULL) || !reserve_split_nodes(tree)) return false;
+    Split split = insert_into_node(tree, tree->root, key, value);
+    if (split.occurred) {
+        BptNode *root = take_split_node(tree, false);
+        root->keys[0] = split.separator;
+        root->children[0] = tree->root;
+        root->children[1] = split.right;
+        root->count = 1;
+        tree->root = root;
+        ++tree->height;
+    }
+    ++tree->size;
+    return true;
+}
+
+BptCursor bptree_lower_bound(const Bptree *tree, uint64_t key) {
+    const BptNode *node = tree->root;
+    if (!node) return (BptCursor){0};
+    while (!node->leaf) node = node->children[find_key_position(node, key, true)];
+    return (BptCursor){node, find_key_position(node, key, false)};
+}
+
+bool bptree_cursor_next(BptCursor *cursor, uint64_t *key, uint64_t *value) {
+    while (cursor->leaf && cursor->position >= cursor->leaf->count) {
+        cursor->leaf = cursor->leaf->next;
+        cursor->position = 0;
+    }
+    if (!cursor->leaf) return false;
+    *key = cursor->leaf->keys[cursor->position];
+    *value = cursor->leaf->values[cursor->position++];
+    return true;
+}
+
+typedef struct {
+    bool valid;
+    uint64_t minimum, maximum, entries;
+    size_t nodes;
+    const BptNode *last_leaf;
+} Validation;
+
+static Validation validate_node(const BptNode *node, size_t depth, size_t height, bool root) {
+    Validation result = {true, 0, 0, 0, 1, NULL};
+    if (!node || node->count > BPT_MAX_KEYS ||
+        (!root && node->count < (node->leaf ? 16u : 15u)) ||
+        (root && !node->leaf && node->count == 0)) {
+        result.valid = false;
+        return result;
+    }
+    for (size_t i = 1; i < node->count; ++i)
+        if (node->keys[i - 1] >= node->keys[i]) result.valid = false;
+    if (node->leaf) {
+        result.valid = result.valid && depth == height;
+        result.entries = node->count;
+        if (node->count) {
+            result.minimum = node->keys[0];
+            result.maximum = node->keys[node->count - 1];
         }
-        n->keys[i] = promoted; n->data.children[i+1] = right; n->count++;
+        result.last_leaf = node;
+        return result;
     }
-    if (n->count <= MAX_KEYS) return NULL;
-    node *right = take_node(tree, n->leaf);
-    unsigned middle = n->count / 2;
-    if (n->leaf) {
-        right->count = n->count - middle;
-        memcpy(right->keys, n->keys + middle, right->count * sizeof(uint64_t));
-        memcpy(right->data.offsets, n->data.offsets + middle, right->count * sizeof(uint64_t));
-        right->next = n->next; n->next = right;
-        *separator = right->keys[0];
-    } else {
-        *separator = n->keys[middle];
-        right->count = n->count - middle - 1;
-        memcpy(right->keys, n->keys + middle + 1, right->count * sizeof(uint64_t));
-        memcpy(right->data.children, n->data.children + middle + 1, (right->count + 1) * sizeof(node *));
+    if (depth >= height) { result.valid = false; return result; }
+    for (size_t i = 0; i <= node->count; ++i) {
+        Validation child = validate_node(node->children[i], depth + 1, height, false);
+        if (!child.valid || !child.entries) { result.valid = false; return result; }
+        if (i == 0) result.minimum = child.minimum;
+        else {
+            const BptNode *first = node->children[i];
+            while (!first->leaf) first = first->children[0];
+            if (result.maximum >= child.minimum || node->keys[i - 1] != child.minimum ||
+                result.last_leaf->next != first) result.valid = false;
+        }
+        result.maximum = child.maximum;
+        result.entries += child.entries;
+        result.nodes += child.nodes;
+        result.last_leaf = child.last_leaf;
     }
-    n->count = middle;
-    return right;
+    return result;
 }
-bpt_status bpt_insert(bptree *tree, uint64_t key, uint64_t offset) {
-    if (!tree) return BPT_INVALID;
-    uint64_t old;
-    if (bpt_find(tree, key, &old, NULL) == BPT_OK) return BPT_DUPLICATE;
-    bpt_status status = bpt_prepare(tree);
-    if (status != BPT_OK) return status;
-    if (!tree->root) { tree->root = take_node(tree, 1); tree->height = 1; }
-    uint64_t separator;
-    node *right = insert_node(tree, tree->root, key, offset, &separator);
-    if (right) {
-        node *root = take_node(tree, 0);
-        root->count = 1; root->keys[0] = separator;
-        root->data.children[0] = tree->root; root->data.children[1] = right;
-        tree->root = root; tree->height++;
-    }
-    return BPT_OK;
+
+bool bptree_validate(const Bptree *tree) {
+    if (!tree->root) return false;
+    Validation result = validate_node(tree->root, 1, tree->height, true);
+    return result.valid && result.entries == tree->size &&
+           result.nodes == tree->node_count && !result.last_leaf->next;
 }
-size_t bpt_height(const bptree *tree) { return tree ? tree->height : 0; }
+
+size_t bptree_memory_bytes(const Bptree *tree) {
+    return sizeof(*tree) + (tree->node_count + tree->spare_count) * sizeof(BptNode);
+}

@@ -1,0 +1,154 @@
+#include "platform.h"
+#include <errno.h>
+#include <limits.h>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+#include <direct.h>
+#include <io.h>
+
+static bool utf8_to_wide(const char *text, wchar_t *wide, int capacity) {
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, wide, capacity) > 0) return true;
+    errno = EINVAL;
+    return false;
+}
+
+void platform_rwlock_init(PlatformRwLock *lock) { InitializeSRWLock(lock); }
+void platform_rwlock_destroy(PlatformRwLock *lock) { (void)lock; }
+void platform_read_lock(PlatformRwLock *lock) { AcquireSRWLockShared(lock); }
+void platform_read_unlock(PlatformRwLock *lock) { ReleaseSRWLockShared(lock); }
+void platform_write_lock(PlatformRwLock *lock) { AcquireSRWLockExclusive(lock); }
+void platform_write_unlock(PlatformRwLock *lock) { ReleaseSRWLockExclusive(lock); }
+void platform_mutex_init(PlatformMutex *lock) { InitializeCriticalSection(lock); }
+void platform_mutex_destroy(PlatformMutex *lock) { DeleteCriticalSection(lock); }
+void platform_mutex_lock(PlatformMutex *lock) { EnterCriticalSection(lock); }
+void platform_mutex_unlock(PlatformMutex *lock) { LeaveCriticalSection(lock); }
+bool platform_create_directory(const char *path) {
+    wchar_t wide[2048];
+    if (!utf8_to_wide(path, wide, 2048)) return false;
+    if (_wmkdir(wide) == 0) return true;
+    struct _stat64 info;
+    return errno == EEXIST && _wstat64(wide, &info) == 0 && (info.st_mode & _S_IFDIR);
+}
+FILE *platform_open_file(const char *path, const char *mode) {
+    wchar_t wide_path[2048], wide_mode[16];
+    if (!utf8_to_wide(path, wide_path, 2048) || !utf8_to_wide(mode, wide_mode, 16)) return NULL;
+    return _wfopen(wide_path, wide_mode);
+}
+bool platform_seek(FILE *file, uint64_t offset) {
+    return offset <= INT64_MAX && _fseeki64(file, (int64_t)offset, SEEK_SET) == 0;
+}
+bool platform_file_size(FILE *file, uint64_t *size) {
+    struct _stat64 info;
+    if (_fstat64(_fileno(file), &info) != 0) return false;
+    *size = (uint64_t)info.st_size;
+    return true;
+}
+bool platform_truncate(FILE *file, uint64_t size) {
+    return size <= INT64_MAX && _chsize_s(_fileno(file), size) == 0;
+}
+bool platform_sync(FILE *file) { return _commit(_fileno(file)) == 0; }
+bool platform_lock_file(const char *path, PlatformFileLock *lock) {
+    wchar_t wide[2048];
+    if (!utf8_to_wide(path, wide, 2048)) return false;
+    *lock = CreateFileW(wide, GENERIC_READ | GENERIC_WRITE, 0, NULL,
+                        OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    return *lock != INVALID_HANDLE_VALUE;
+}
+void platform_unlock_file(PlatformFileLock lock) { CloseHandle(lock); }
+bool platform_reader_open(const char *path, PlatformReader *reader) {
+    wchar_t wide[2048];
+    if (!utf8_to_wide(path, wide, 2048)) return false;
+    *reader = CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                          NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED | FILE_FLAG_RANDOM_ACCESS, NULL);
+    return *reader != INVALID_HANDLE_VALUE;
+}
+void platform_reader_close(PlatformReader reader) { CloseHandle(reader); }
+bool platform_read_at(PlatformReader reader, uint64_t offset, void *buffer, size_t length) {
+    if (offset > INT64_MAX || length > UINT32_MAX || length > (uint64_t)INT64_MAX - offset) return false;
+    OVERLAPPED operation = {0};
+    operation.Offset = (DWORD)offset;
+    operation.OffsetHigh = (DWORD)(offset >> 32);
+    /* Each outstanding request needs its own OVERLAPPED and completion event. */
+    operation.hEvent = CreateEventA(NULL, TRUE, FALSE, NULL);
+    if (!operation.hEvent) return false;
+    BOOL submitted = ReadFile(reader, buffer, (DWORD)length, NULL, &operation);
+    bool success = submitted || GetLastError() == ERROR_IO_PENDING;
+    DWORD transferred = 0;
+    if (success) success = GetOverlappedResult(reader, &operation, &transferred, TRUE) != 0;
+    CloseHandle(operation.hEvent);
+    return success && transferred == length;
+}
+double platform_now(void) {
+    LARGE_INTEGER counter, frequency;
+    QueryPerformanceCounter(&counter);
+    QueryPerformanceFrequency(&frequency);
+    return (double)counter.QuadPart / (double)frequency.QuadPart;
+}
+#else
+#include <fcntl.h>
+#include <sys/file.h>
+#include <time.h>
+#include <unistd.h>
+
+void platform_rwlock_init(PlatformRwLock *lock) { pthread_rwlock_init(lock, NULL); }
+void platform_rwlock_destroy(PlatformRwLock *lock) { pthread_rwlock_destroy(lock); }
+void platform_read_lock(PlatformRwLock *lock) { pthread_rwlock_rdlock(lock); }
+void platform_read_unlock(PlatformRwLock *lock) { pthread_rwlock_unlock(lock); }
+void platform_write_lock(PlatformRwLock *lock) { pthread_rwlock_wrlock(lock); }
+void platform_write_unlock(PlatformRwLock *lock) { pthread_rwlock_unlock(lock); }
+void platform_mutex_init(PlatformMutex *lock) { pthread_mutex_init(lock, NULL); }
+void platform_mutex_destroy(PlatformMutex *lock) { pthread_mutex_destroy(lock); }
+void platform_mutex_lock(PlatformMutex *lock) { pthread_mutex_lock(lock); }
+void platform_mutex_unlock(PlatformMutex *lock) { pthread_mutex_unlock(lock); }
+bool platform_create_directory(const char *path) {
+    if (mkdir(path, 0755) == 0) return true;
+    struct stat info;
+    return errno == EEXIST && stat(path, &info) == 0 && S_ISDIR(info.st_mode);
+}
+FILE *platform_open_file(const char *path, const char *mode) { return fopen(path, mode); }
+bool platform_seek(FILE *file, uint64_t offset) {
+    return offset <= INT64_MAX && fseeko(file, (off_t)offset, SEEK_SET) == 0;
+}
+bool platform_file_size(FILE *file, uint64_t *size) {
+    struct stat info;
+    if (fstat(fileno(file), &info) != 0) return false;
+    *size = (uint64_t)info.st_size;
+    return true;
+}
+bool platform_truncate(FILE *file, uint64_t size) {
+    return size <= INT64_MAX && ftruncate(fileno(file), (off_t)size) == 0;
+}
+bool platform_sync(FILE *file) { return fsync(fileno(file)) == 0; }
+bool platform_lock_file(const char *path, PlatformFileLock *lock) {
+    *lock = open(path, O_CREAT | O_RDWR, 0644);
+    if (*lock < 0) return false;
+    if (flock(*lock, LOCK_EX | LOCK_NB) == 0) return true;
+    close(*lock);
+    return false;
+}
+void platform_unlock_file(PlatformFileLock lock) { close(lock); }
+bool platform_reader_open(const char *path, PlatformReader *reader) {
+    *reader = open(path, O_RDONLY);
+    return *reader >= 0;
+}
+void platform_reader_close(PlatformReader reader) { close(reader); }
+bool platform_read_at(PlatformReader reader, uint64_t offset, void *buffer, size_t length) {
+    if (offset > INT64_MAX || length > (uint64_t)INT64_MAX - offset) return false;
+    size_t completed = 0;
+    while (completed < length) {
+        size_t chunk = length - completed;
+        if (chunk > 0x7fffffffu) chunk = 0x7fffffffu;
+        ssize_t count = pread(reader, (unsigned char *)buffer + completed, chunk, (off_t)(offset + completed));
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) return false;
+        completed += (size_t)count;
+    }
+    return true;
+}
+double platform_now(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
+}
+#endif

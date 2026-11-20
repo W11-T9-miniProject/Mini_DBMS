@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#087e83">
+  <meta name="description" content="직접 만든 C DB 엔진에 SQL을 실행하고 B+ 트리 실행 계획을 확인하는 로컬 워크스페이스">
+  <title>MiniDB Studio · SQL 워크스페이스</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/studio.css">
+  <script src="/assets/studio.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#sql-editor">SQL 편집기로 이동</a>
+  <aside class="sidebar" aria-label="워크스페이스 탐색">
+    <a class="brand" href="/" aria-label="MiniDB Studio 홈"><img src="/favicon.svg" width="35" height="35" alt=""><span>MiniDB <strong>Studio</strong><small>YOUR ENGINE. YOUR QUERIES.</small></span></a>
+    <div class="workspace"><span class="workspace-icon">M</span><div>로컬 워크스페이스<small>C engine / Python API</small></div><span class="local-tag">LOCAL</span></div>
+    <div class="nav-section"><span class="section-label">WORKSPACE</span><a class="nav-active" href="#sql-editor"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 5-5 5 5 5m6-10 5 5-5 5m-2-13-2 16"/></svg>SQL 콘솔<span class="nav-key">⌘</span></a></div>
+    <section class="schema-section" aria-labelledby="tables-title">
+      <div class="section-heading"><h2 id="tables-title" class="section-label">TABLES</h2><span class="small-counter">1</span></div>
+      <details class="table-details" open><summary><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="14" height="14" rx="2"/><path d="M3 8h14M8 8v9"/></svg><strong>users</strong><span class="table-count" id="sidebar-row-count">—</span></summary>
+        <ul class="columns-list"><li><span class="key-symbol" title="기본 키">⌑</span><span>id</span><code>INT64</code><span class="column-tag">PK</span></li><li><span class="type-symbol">Aa</span><span>name</span><code>STRING</code></li><li><span class="type-symbol">#</span><span>age</span><code>INT32</code></li><li><span class="type-symbol">Aa</span><span>email</span><code>STRING</code></li></ul>
+      </details>
+      <button class="add-record-link" id="open-insert"><span aria-hidden="true">＋</span> 레코드 추가</button>
+    </section>
+    <section class="history-section" aria-labelledby="history-title"><div class="section-heading"><h2 id="history-title" class="section-label">RECENT QUERIES</h2><button class="text-button" id="clear-history">지우기</button></div><ol class="history-list" id="history-list"><li class="history-empty">실행한 쿼리가 여기에 남습니다.</li></ol></section>
+    <div class="sidebar-foot"><span class="engine-emblem">C</span><div>작지만, 진짜 DBMS<small>SQL processor + B+ tree</small></div><span class="version">v1.0</span></div>
+  </aside>
+
+  <div class="main-shell">
+    <header class="topbar"><div class="breadcrumb">워크스페이스 <span>/</span> <strong>SQL 콘솔</strong></div><div class="topbar-actions"><span class="connection-status" id="connection-status" role="status"><i></i><span>연결 확인 중</span></span><button class="icon-button" id="open-connection" title="연결 설정" aria-label="연결 설정"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 2h4l.6 2.1 1.9 1.1 2.1-.5 2 3.5-1.5 1.6v2.2l1.5 1.6-2 3.5-2.1-.5-1.9 1.1L12 20H8l-.6-2.3-1.9-1.1-2.1.5-2-3.5L3 12V9.8L1.4 8.2l2-3.5 2.1.5 1.9-1.1L8 2Z" transform="translate(1 -1) scale(.9)"/><circle cx="10" cy="10" r="3"/></svg></button></div></header>
+    <main>
+      <div class="page-heading"><div><div class="eyebrow"><span></span> DATABASE PLAYGROUND</div><h1>SQL 워크스페이스<span class="heading-dot">.</span></h1><p>쿼리를 실행하고, 직접 만든 엔진의 동작을 확인하세요.</p></div><button class="button button-secondary" id="refresh-stats"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 7a6 6 0 1 0 .2 5M16 2v5h-5"/></svg>상태 새로고침</button></div>
+
+      <section class="overview" aria-label="실시간 엔진 통계">
+        <div class="overview-item"><span class="overview-label">전체 레코드 <svg viewBox="0 0 20 20" aria-hidden="true"><ellipse cx="10" cy="5" rx="6" ry="2.5"/><path d="M4 5v10c0 3.3 12 3.3 12 0V5M4 10c0 3.3 12 3.3 12 0"/></svg></span><strong id="stat-rows">—</strong><span class="overview-note">users 테이블</span></div>
+        <div class="overview-item"><span class="overview-label">인덱스 높이 <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="7" y="2" width="6" height="4" rx="1"/><rect x="1" y="14" width="6" height="4" rx="1"/><rect x="13" y="14" width="6" height="4" rx="1"/><path d="M10 6v4M4 14v-4h12v4"/></svg></span><strong><span id="stat-height">—</span><small>levels</small></strong><span class="overview-note">메모리 B+ 트리</span></div>
+        <div class="overview-item"><span class="overview-label">저장 파일 <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 2h7l4 4v12H5V2Zm7 0v5h4M8 11h5m-5 3h5"/></svg></span><strong><span id="stat-storage">—</span><small id="storage-unit">KB</small></strong><span class="overview-note">users.db · 파일 기반 저장</span></div>
+        <div class="overview-item"><span class="overview-label">Thread Pool <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 5h16M2 10h16M2 15h16"/><circle cx="6" cy="5" r="2"/><circle cx="14" cy="10" r="2"/><circle cx="8" cy="15" r="2"/></svg></span><strong><span id="stat-workers">—</span><small>workers</small></strong><span class="overview-note" id="stat-queue">대기 큐 확인 중</span></div>
+      </section>
+
+      <div class="workbench-grid">
+        <div class="query-workspace">
+          <section class="editor-panel" aria-labelledby="editor-title">
+            <div class="panel-topline"><h2 id="editor-title"><span class="file-icon" aria-hidden="true">⌘</span> query.sql <span class="unsaved-dot" title="편집 가능"></span></h2><span class="language-label">SQL</span></div>
+            <div class="editor-container"><pre class="line-numbers" id="line-numbers" aria-hidden="true">1</pre><pre class="code-highlight" id="code-highlight" aria-hidden="true"><code id="highlighted-code"></code></pre><label class="sr-only" for="sql-editor">실행할 SQL 한 문장</label><textarea id="sql-editor" class="sql-editor" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off">SELECT *
+FROM users
+LIMIT 20;</textarea></div>
+            <div class="editor-toolbar"><span class="editor-hint"><kbd id="shortcut-key">Ctrl</kbd><span>+</span><kbd>Enter</kbd> 실행 <span class="hint-divider">·</span><span id="editor-count">1개 문장씩 실행</span></span><div class="editor-buttons"><button class="button button-ghost" id="explain-query">실행 계획 확인</button><button class="button button-primary" id="run-query"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 9 6-9 6V4Z"/></svg><span>쿼리 실행</span></button></div></div>
+          </section>
+
+          <div class="presets"><span>빠른 시작</span><button data-preset="all">전체 조회</button><button data-preset="id">ID 검색 <span class="tiny-index">INDEX</span></button><button data-preset="range">범위 검색</button><button data-preset="scan">조건 검색</button><button data-preset="insert">INSERT</button></div>
+
+          <section class="results-panel" aria-label="쿼리 실행 결과">
+            <div class="results-topline"><div class="result-tabs" role="tablist" aria-label="결과 보기"><button id="tab-table" role="tab" aria-selected="true" aria-controls="view-table" tabindex="0" data-view="table">결과 <span id="result-count">0</span></button><button id="tab-plan" role="tab" aria-selected="false" aria-controls="view-plan" tabindex="-1" data-view="plan">실행 계획</button><button id="tab-json" role="tab" aria-selected="false" aria-controls="view-json" tabindex="-1" data-view="json">JSON</button></div><button class="icon-button export-button" id="export-csv" disabled aria-label="조회 결과 CSV 다운로드" title="조회 결과 CSV 다운로드"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v10m-4-4 4 4 4-4M3 12v5h14v-5"/></svg></button></div>
+            <div class="result-feedback" id="result-feedback" role="status" hidden></div>
+            <div class="result-metrics" id="result-metrics" hidden><span class="query-success"><i></i>실행 완료</span><span>전체 응답 <strong id="metric-total">—</strong></span><span title="C 함수 호출과 Python 결과 변환을 포함합니다">엔진·변환 <strong id="metric-engine">—</strong></span><span class="metric-worker" id="metric-worker">—</span></div>
+            <div id="view-table" class="result-view" role="tabpanel" aria-labelledby="tab-table"><div class="empty-state" id="results-empty"><div class="empty-icon"><svg viewBox="0 0 28 28" aria-hidden="true"><rect x="4" y="5" width="20" height="18" rx="3"/><path d="M4 11h20M11 11v12m6-12v12"/></svg></div><h3>첫 쿼리를 실행해 보세요</h3><p>결과는 실제 C 엔진에서 읽어 옵니다.<br>위의 실행 버튼 또는 <span class="shortcut-inline">Ctrl + Enter</span>를 눌러 시작하세요.</p><button class="text-button teal" id="load-first-example">예제 쿼리 살펴보기 <span aria-hidden="true">↗</span></button></div><div class="table-scroll" id="results-table-wrap" hidden><table class="results-table"><caption class="sr-only">SQL 조회 결과</caption><thead id="results-head"></thead><tbody id="results-body"></tbody></table></div><div class="result-pagination" id="result-pagination" hidden><span id="pagination-label"></span><div><button id="previous-page" aria-label="이전 결과 페이지">←</button><button id="next-page" aria-label="다음 결과 페이지">→</button></div></div><div class="insert-success" id="insert-success" hidden><span class="insert-check" aria-hidden="true">✓</span><h3 id="insert-summary"></h3><p id="insert-detail"></p><button class="button button-secondary" id="view-inserted">추가한 데이터 조회 <span aria-hidden="true">↗</span></button></div></div>
+            <div id="view-plan" class="result-view" role="tabpanel" aria-labelledby="tab-plan" hidden><div class="plan-empty">쿼리를 실행하면 C 엔진의 검색 경로를 확인할 수 있습니다.</div></div>
+            <div id="view-json" class="result-view" role="tabpanel" aria-labelledby="tab-json" hidden><pre id="json-response" class="json-response">아직 실행한 쿼리가 없습니다.</pre></div>
+            <div class="results-footer"><span><i class="small-live-dot"></i>실제 엔진 연결</span><span id="query-timestamp">쿼리 실행 대기 중</span></div>
+          </section>
+        </div>
+
+        <aside class="context-panel" aria-label="엔진 사용 안내">
+          <section class="context-card"><div class="context-eyebrow">UNDER THE HOOD</div><h2>쿼리 한 줄이<br>엔진을 움직입니다.</h2><p>텍스트를 분석하고, 실행 경로를 선택하고,<br>파일에서 데이터를 찾아옵니다.</p><ol class="engine-flow"><li><span class="flow-node">01</span><div><strong>SQL 파서</strong><small>명령과 조건을 구조화</small></div><span class="flow-language">C</span></li><li><span class="flow-node">02</span><div><strong>실행 계획 선택</strong><small>인덱스 조회 또는 전체 스캔</small></div><span class="flow-language">C</span></li><li><span class="flow-node">03</span><div><strong>파일 저장소</strong><small>실제 레코드 읽기·쓰기</small></div><span class="flow-language">C</span></li></ol><div class="context-footnote"><span class="small-live-dot"></span>Python API가 C 공유 라이브러리를 호출합니다.</div></section>
+          <section class="tip-card"><div class="tip-icon" aria-hidden="true">✦</div><h3>인덱스의 차이를 확인하세요</h3><p><code>WHERE id = 1</code>은 B+ 트리,<br><code>WHERE age = 25</code>는 전체 스캔을 사용합니다. 결과의 <strong>검사한 행 수</strong>를 비교해 보세요.</p><button class="text-button teal" id="try-index">ID 검색 해보기 <span aria-hidden="true">→</span></button></section>
+          <section class="seed-card"><span class="seed-label">처음 사용하시나요?</span><h3>데이터부터 넣어보세요.</h3><p>users 테이블에 예제 레코드<br>5건을 추가합니다.</p><button class="button button-secondary" id="insert-sample"><span aria-hidden="true">＋</span>샘플 데이터 추가</button><small>클릭하면 실제 DB에 저장됩니다.</small></section>
+        </aside>
+      </div>
+      <footer class="page-footer"><span>MiniDB Studio <span class="footer-dot">·</span> 직접 만든 엔진을 위한 작은 작업 공간</span><span>INSERT · SELECT · EXPLAIN</span></footer>
+    </main>
+  </div>
+
+  <dialog id="connection-dialog" class="studio-dialog" aria-labelledby="connection-title"><form id="connection-form"><div class="dialog-heading"><div><span class="eyebrow">CONNECTION</span><h2 id="connection-title">엔진 연결 설정</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="닫기">×</button></div><label for="server-origin">API 서버</label><input id="server-origin" readonly><p class="field-note">이 웹페이지를 제공하는 서버의 C 엔진을 사용합니다.</p><label for="api-token">API 토큰 <span class="optional">선택</span></label><input id="api-token" type="password" autocomplete="off" placeholder="서버에서 토큰을 설정했다면 입력하세요"><p class="field-note">토큰은 메모리에만 보관하며, 새로고침하면 삭제됩니다.</p><div class="dialog-actions"><button type="button" class="button button-secondary" data-close-dialog>닫기</button><button class="button button-primary" type="submit">연결 확인</button></div></form></dialog>
+
+  <dialog id="insert-dialog" class="studio-dialog" aria-labelledby="insert-title"><form id="insert-form"><div class="dialog-heading"><div><span class="eyebrow">INSERT INTO USERS</span><h2 id="insert-title">새 레코드 추가</h2></div><button type="button" class="icon-button" data-close-dialog aria-label="닫기">×</button></div><p class="dialog-description">입력한 값을 INSERT SQL로 바꾸어 실제 엔진에서 실행합니다.</p><label for="record-name">이름</label><input id="record-name" required placeholder="예: 홍길동" maxlength="63"><div class="form-row"><div><label for="record-age">나이 <span class="optional">INT32</span></label><input id="record-age" type="number" step="1" min="-2147483648" max="2147483647" required placeholder="25"></div><div class="auto-id-field"><label>레코드 ID</label><span>엔진이 자동으로 부여합니다</span></div></div><label for="record-email">이메일 <span class="optional">선택</span></label><input id="record-email" placeholder="hello@example.com" maxlength="127"><p class="form-error" id="insert-form-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" class="button button-secondary" data-close-dialog>취소</button><button class="button button-primary" type="submit">레코드 추가</button></div></form></dialog>
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>

@@ -1,4 +1,14 @@
-/build/
-/data/
+build/
+data/
+*.obj
+*.pdb
+*.ilk
+*.exe
+*.db
+*.lock
 __pycache__/
-*.pyc
+*.dll
+*.so
+*.dylib
+*.lib
+*.exp

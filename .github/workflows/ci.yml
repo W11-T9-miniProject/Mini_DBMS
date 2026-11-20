@@ -1,0 +1,40 @@
+name: C engine tests
+
+on: [push, pull_request]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build with warnings as errors
+        run: make
+      - name: Unit and integration tests
+        run: make test
+      - name: Address and undefined behavior sanitizers
+        run: make sanitize
+      - name: CLI SQL file
+        run: ./build/mini_db --db build/cli-data --file examples/demo.sql
+      - name: Concurrent load correctness smoke test
+        run: ./build/db_load build/ci-load 1000 100 4 1 1
+      - name: Python bridge and real HTTP tests
+        run: make api-test
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: MSVC C11 build and tests
+        run: ./scripts/build.ps1 -Test
+      - name: CLI functional tests
+        run: ./scripts/test-cli.ps1
+      - name: Concurrent load correctness smoke test
+        run: ./build/db_load.exe build/ci-load 1000 100 4 1 1
+      - name: Python bridge and real HTTP tests
+        run: python -m unittest discover -s tests -p "test_api*.py" -v

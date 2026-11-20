@@ -1,134 +1,48 @@
-CC = gcc
-CPPFLAGS = -D_POSIX_C_SOURCE=200809L -D_FILE_OFFSET_BITS=64 -Iinclude
-CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -Werror -g -pthread
-WRAPS = -Wl,--wrap=calloc -Wl,--wrap=pwrite64 -Wl,--wrap=fsync
+CC = cc
+CPPFLAGS += -Iinclude -Isrc -D_POSIX_C_SOURCE=200809L -D_FILE_OFFSET_BITS=64
+CFLAGS ?= -O2 -g
+CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Werror
+LDLIBS += -pthread
+CORE = src/abi.c src/error.c src/platform.c src/bptree.c src/parser.c src/storage.c src/engine.c src/script.c
+PYTHON ?= python3
+SHARED_EXT = so
+SHARED_FLAGS = -shared -fPIC
+ifeq ($(shell uname -s),Darwin)
+SHARED_EXT = dylib
+SHARED_FLAGS = -dynamiclib -fPIC
+endif
+HEADERS = $(wildcard include/*.h src/*.h)
 
-.PHONY: test sanitize storage-demo parser-test cli benchmark server http-test http-sanitize presentation-test presentation-sanitize
-.DEFAULT_GOAL := test
-
-cli: build/mini-dbms
-
-ENGINE_SOURCES = src/engine.c src/sql.c src/storage.c src/bptree.c
-ENGINE_HEADERS = include/engine.h include/sql.h include/storage.h include/bptree.h
-
-build/test_engine: tests/test_engine.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_engine.c $(ENGINE_SOURCES) -Wl,--wrap=calloc -o $@
-
-build/test_engine_sanitize: tests/test_engine.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_engine.c $(ENGINE_SOURCES) -Wl,--wrap=calloc -o $@
-
-build/mini-dbms: src/main.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) src/main.c $(ENGINE_SOURCES) -o $@
-
-build/mini-dbms-sanitize: src/main.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer src/main.c $(ENGINE_SOURCES) -o $@
-
-parser-test: build/test_sql
-	./build/test_sql
-
-build/test_sql: tests/test_sql.c src/sql.c include/sql.h include/storage.h Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_sql.c src/sql.c -o $@
-
-build/test_sql_sanitize: tests/test_sql.c src/sql.c include/sql.h include/storage.h Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_sql.c src/sql.c -o $@
-
-test: build/test_storage build/storage-demo build/test_sql build/test_engine build/mini-dbms build/test_bptree build/benchmark build/benchmark-race build/test_concurrency build/test_durability build/test_pool
-	./build/test_pool
-	./build/test_durability
-	./build/test_concurrency
-	./build/test_bptree
-	./build/test_storage
-	python3 tests/test_storage_process.py
-	./build/test_sql
-	./build/test_engine
-	python3 tests/test_cli.py
-	python3 tests/test_benchmark.py
-
-sanitize: build/test_storage_sanitize build/storage-demo-sanitize build/test_sql_sanitize build/test_engine_sanitize build/mini-dbms-sanitize build/test_bptree_sanitize build/benchmark-sanitize build/benchmark-race-sanitize build/test_concurrency_sanitize build/test_durability_sanitize build/test_pool_sanitize
-	ASAN_OPTIONS=detect_leaks=1 ./build/test_pool_sanitize
-	ASAN_OPTIONS=detect_leaks=1 ./build/test_durability_sanitize
-	ASAN_OPTIONS=detect_leaks=1 ./build/test_concurrency_sanitize
-	ASAN_OPTIONS=detect_leaks=1 ./build/test_bptree_sanitize
-	ASAN_OPTIONS=detect_leaks=1 ./build/test_storage_sanitize
-	MINI_DBMS_DEMO=build/storage-demo-sanitize ASAN_OPTIONS=detect_leaks=1 python3 tests/test_storage_process.py
-	ASAN_OPTIONS=detect_leaks=1 ./build/test_sql_sanitize
-	ASAN_OPTIONS=detect_leaks=1 ./build/test_engine_sanitize
-	MINI_DBMS_CLI=build/mini-dbms-sanitize ASAN_OPTIONS=detect_leaks=1 python3 tests/test_cli.py
-	MINI_DBMS_BENCHMARK=build/benchmark-sanitize MINI_DBMS_BENCHMARK_RACE=build/benchmark-race-sanitize ASAN_OPTIONS=detect_leaks=1 python3 tests/test_benchmark.py
-
-storage-demo: build/storage-demo
-
-build/test_storage: tests/test_storage.c src/storage.c include/storage.h Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_storage.c src/storage.c $(WRAPS) -o $@
-
-build/test_storage_sanitize: tests/test_storage.c src/storage.c include/storage.h Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_storage.c src/storage.c $(WRAPS) -o $@
-
-build/storage-demo: tools/storage_demo.c src/storage.c include/storage.h Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tools/storage_demo.c src/storage.c -o $@
-
-build/storage-demo-sanitize: tools/storage_demo.c src/storage.c include/storage.h Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer tools/storage_demo.c src/storage.c -o $@
+.PHONY: all test benchmark sanitize api-test
+all: build/mini_db build/db_tests build/db_bench build/db_load build/libminidb.$(SHARED_EXT)
 
 build:
 	mkdir -p build
 
-build/test_bptree: tests/test_bptree.c src/bptree.c include/bptree.h Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_bptree.c src/bptree.c -Wl,--wrap=calloc -o $@
+build/mini_db: $(CORE) src/main.c $(HEADERS) | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) src/main.c -o $@ $(LDLIBS)
 
-build/test_bptree_sanitize: tests/test_bptree.c src/bptree.c include/bptree.h Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_bptree.c src/bptree.c -Wl,--wrap=calloc -o $@
+build/db_tests: $(CORE) tests/test_main.c $(HEADERS) | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tests/test_main.c -o $@ $(LDLIBS)
 
-benchmark: build/benchmark
+build/db_bench: $(CORE) tools/benchmark.c $(HEADERS) | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/benchmark.c -o $@ $(LDLIBS)
 
-build/benchmark: tools/benchmark.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O2 tools/benchmark.c $(ENGINE_SOURCES) -o $@
+build/db_load: $(CORE) tools/load_benchmark.c $(HEADERS) | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(CORE) tools/load_benchmark.c -o $@ $(LDLIBS)
 
-build/benchmark-sanitize: tools/benchmark.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer tools/benchmark.c $(ENGINE_SOURCES) -o $@
+build/libminidb.$(SHARED_EXT): $(CORE) $(HEADERS) | build
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(SHARED_FLAGS) $(CORE) -o $@ $(LDLIBS)
 
-build/benchmark-race: tests/benchmark_race.c tools/benchmark.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -O2 tests/benchmark_race.c tools/benchmark.c $(ENGINE_SOURCES) -Wl,--wrap=engine_create_new -o $@
+api-test: build/libminidb.$(SHARED_EXT)
+	$(PYTHON) -m unittest discover -s tests -p "test_api*.py" -v
 
-build/benchmark-race-sanitize: tests/benchmark_race.c tools/benchmark.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer tests/benchmark_race.c tools/benchmark.c $(ENGINE_SOURCES) -Wl,--wrap=engine_create_new -o $@
+test: build/db_tests
+	./build/db_tests
 
-build/test_concurrency: tests/test_concurrency.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_concurrency.c $(ENGINE_SOURCES) -o $@
+benchmark: build/db_bench
+	./build/db_bench build/benchmark-data 1000000 30
 
-build/test_concurrency_sanitize: tests/test_concurrency.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_concurrency.c $(ENGINE_SOURCES) -o $@
-
-SERVER_SOURCES = src/server.c src/pool.c third_party/picohttpparser/picohttpparser.c $(ENGINE_SOURCES)
-SERVER_HEADERS = include/pool.h third_party/picohttpparser/picohttpparser.h $(ENGINE_HEADERS)
-server: build/mini-dbms-server
-
-build/mini-dbms-server: $(SERVER_SOURCES) $(SERVER_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) -Ithird_party/picohttpparser $(CFLAGS) $(SERVER_SOURCES) -o $@
-
-build/mini-dbms-server-sanitize: $(SERVER_SOURCES) $(SERVER_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) -Ithird_party/picohttpparser $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer $(SERVER_SOURCES) -o $@
-
-http-test: build/mini-dbms-server
-	python3 tests/test_http.py
-
-http-sanitize: build/mini-dbms-server-sanitize
-	MINI_DBMS_SERVER=build/mini-dbms-server-sanitize ASAN_OPTIONS=detect_leaks=1 python3 tests/test_http.py
-
-build/test_durability: tests/test_durability.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_durability.c $(ENGINE_SOURCES) -Wl,--wrap=fsync -o $@
-
-build/test_durability_sanitize: tests/test_durability.c $(ENGINE_SOURCES) $(ENGINE_HEADERS) Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_durability.c $(ENGINE_SOURCES) -Wl,--wrap=fsync -o $@
-
-build/test_pool: tests/test_pool.c src/pool.c include/pool.h Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/test_pool.c src/pool.c -Wl,--wrap=calloc -Wl,--wrap=pthread_create -o $@
-
-build/test_pool_sanitize: tests/test_pool.c src/pool.c include/pool.h Makefile | build
-	$(CC) $(CPPFLAGS) $(CFLAGS) -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_pool.c src/pool.c -Wl,--wrap=calloc -Wl,--wrap=pthread_create -o $@
-
-presentation-test: build/benchmark build/mini-dbms-server
-	python3 tests/test_presentation_demo.py
-
-presentation-sanitize: build/benchmark-sanitize build/mini-dbms-server-sanitize
-	MINI_DBMS_BENCHMARK=build/benchmark-sanitize MINI_DBMS_SERVER=build/mini-dbms-server-sanitize ASAN_OPTIONS=detect_leaks=1 python3 tests/test_presentation_demo.py
+sanitize: | build
+	$(CC) $(CPPFLAGS) -std=c11 -O1 -g -Wall -Wextra -Wpedantic -Werror -fsanitize=address,undefined -fno-omit-frame-pointer $(CORE) tests/test_main.c -o build/db_tests_sanitize $(LDLIBS)
+	./build/db_tests_sanitize

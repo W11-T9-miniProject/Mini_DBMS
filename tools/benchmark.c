@@ -1,124 +1,150 @@
-#include "engine.h"
+#include "db.h"
+#include "platform.h"
+#include "storage.h"
 #include <errno.h>
-#include <inttypes.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <unistd.h>
 
-#define MAX_SAMPLES 101
-typedef struct { uint64_t id, count; play_record record; } capture;
-typedef struct { uint64_t id, indexed_ns, linear_ns, nodes; } sample;
-static void die(const char *message) { fprintf(stderr, "%s\n", message); exit(1); }
-static uint64_t now_ns(void) {
-    struct timespec t;
-    if (clock_gettime(CLOCK_MONOTONIC, &t)) die("clock failure");
-    return (uint64_t)t.tv_sec * UINT64_C(1000000000) + (uint64_t)t.tv_nsec;
+#define BATCH_SIZE 1000u
+#define SQL_CAPACITY (256u * 1024u)
+
+static void fail(const char *message) { fprintf(stderr, "%s\n", message); exit(1); }
+
+static uint64_t parse_positive(const char *value, uint64_t maximum) {
+    char *end;
+    errno = 0;
+    unsigned long long parsed = strtoull(value, &end, 10);
+    if (errno || !value[0] || value[0] == '-' || *end || parsed == 0 || parsed > maximum)
+        fail("Invalid benchmark argument");
+    return (uint64_t)parsed;
 }
-static void check(db_status status) { if (status != DB_OK) die(db_status_text(status)); }
-static sql_statement parse(const char *text) {
-    sql_parser parser; sql_statement statement; sql_error error;
-    sql_parser_init(&parser, text, strlen(text));
-    if (sql_next(&parser, &statement, &error) != SQL_OK) die(error.message);
-    return statement;
+
+static DbResult execute_checked(Db *db, const char *sql) {
+    DbResult result;
+    DbError error;
+    if (db_execute(db, sql, NULL, NULL, &result, &error) != DB_OK) fail(error.message);
+    return result;
 }
-static int capture_row(const play_record *record, void *context) {
-    capture *c = context;
-    c->count++; c->record = *record;
-    return record->id == c->id ? 0 : -1;
+
+static void insert_generated_rows(Db *db, uint64_t total) {
+    char *sql = malloc(SQL_CAPACITY);
+    if (!sql) fail("Cannot allocate SQL batch");
+    for (uint64_t start = 1; start <= total; start += BATCH_SIZE) {
+        size_t used = (size_t)snprintf(sql, SQL_CAPACITY, "INSERT INTO users(name,age,email) VALUES ");
+        size_t batch = total - start + 1 < BATCH_SIZE ? (size_t)(total - start + 1) : BATCH_SIZE;
+        for (size_t i = 0; i < batch; ++i) {
+            unsigned long long id = (unsigned long long)(start + i);
+            int written = snprintf(sql + used, SQL_CAPACITY - used, "%s('user_%llu',%u,'user_%llu@example.com')",
+                                   i ? "," : "", id, (unsigned)((start + i) % 100), id);
+            if (written < 0 || (size_t)written >= SQL_CAPACITY - used) fail("SQL batch buffer overflow");
+            used += (size_t)written;
+        }
+        DbResult result = execute_checked(db, sql);
+        if (result.affected_rows != batch || result.first_insert_id != start) fail("Generated INSERT verification failed");
+        if ((start - 1) % 100000 == 0) fprintf(stderr, "Inserted %llu / %llu\n", (unsigned long long)(start + batch - 1), (unsigned long long)total);
+    }
+    free(sql);
 }
-static uint64_t query(db_engine *engine, sql_statement *statement, capture *c, db_result *result) {
-    c->count = 0;
-    uint64_t start = now_ns();
-    db_status status = engine_execute(engine, statement, capture_row, c, result);
-    uint64_t duration = now_ns() - start;
-    check(status);
-    if (c->count != 1 || result->affected != 1) die("query did not return exactly the expected row");
-    return duration;
+
+typedef struct { uint64_t id; uint64_t count; } Match;
+static bool capture_match(const DbRow *row, const DbResult *result, void *context) {
+    Match *match = context;
+    (void)result;
+    match->id = row->id;
+    ++match->count;
+    return true;
 }
-static int compare(const void *a, const void *b) {
-    uint64_t x = *(const uint64_t *)a, y = *(const uint64_t *)b;
-    return (x > y) - (x < y);
+
+static double measure_query(Db *db, const char *sql, bool force_scan, uint64_t expected_id, uint64_t expected_examined) {
+    Match match = {0};
+    DbResult result;
+    DbError error;
+    double start = platform_now();
+    DbStatus status = force_scan
+        ? db_execute_scan(db, sql, capture_match, &match, &result, &error)
+        : db_execute(db, sql, capture_match, &match, &result, &error);
+    double elapsed = (platform_now() - start) * 1000.0;
+    if (status != DB_OK) fail(error.message);
+    if (match.count != 1 || match.id != expected_id || result.affected_rows != 1 || result.examined_rows != expected_examined)
+        fail("Query correctness or examined-row verification failed");
+    return elapsed;
 }
+
+static int compare_double(const void *left, const void *right) {
+    double a = *(const double *)left, b = *(const double *)right;
+    return (a > b) - (a < b);
+}
+
+static void report_latencies(const char *label, double *samples, size_t count) {
+    qsort(samples, count, sizeof(*samples), compare_double);
+    double median = count % 2 ? samples[count / 2] : (samples[count / 2 - 1] + samples[count / 2]) / 2;
+    size_t p95 = (count * 95 + 99) / 100 - 1;
+    printf("%s,%.6f,%.6f\n", label, median, samples[p95]);
+}
+
 int main(int argc, char **argv) {
-    if (argc < 3 || argc > 4) die("Usage: benchmark <generated.sql> <new-db-file> [odd-samples:1..101]");
-    char *end = NULL; errno = 0;
-    unsigned long parsed_samples = argc == 4 ? strtoul(argv[3], &end, 10) : 9;
-    if (errno || (argc == 4 && (!argv[3][0] || *end)) || !parsed_samples || parsed_samples > MAX_SAMPLES || parsed_samples % 2 == 0)
-        die("samples must be an odd integer between 1 and 101");
-    unsigned samples = (unsigned)parsed_samples;
-    struct stat info;
-    /* Never append a benchmark dataset to an existing user database. */
-    if (lstat(argv[2], &info) == 0 || errno != ENOENT) die("benchmark database path must not exist");
-    FILE *source = fopen(argv[1], "rb");
-    if (!source) die("cannot open SQL input");
-    if (fstat(fileno(source), &info) || !S_ISREG(info.st_mode) || info.st_size <= 0 ||
-        (uint64_t)info.st_size > UINT64_C(256)*1024*1024) die("invalid SQL size (limit 256 MiB)");
-    size_t length = (size_t)info.st_size;
-    char *text = malloc(length+1);
-    if (!text || fread(text, 1, length, source) != length) die("cannot read SQL input");
-    if (fclose(source)) die("cannot close SQL input");
-    text[length] = 0;
-    db_engine *engine = NULL;
-    check(engine_create_new(&engine, argv[2]));
-    sql_parser parser; sql_statement statement; sql_error error; db_result result;
-    sql_parser_init(&parser, text, length);
-    uint64_t count = 0, start = now_ns();
-    for (;;) {
-        sql_status status = sql_next(&parser, &statement, &error);
-        if (status == SQL_DONE) break;
-        if (status != SQL_OK) die(error.message);
-        if (statement.kind != SQL_INSERT) die("benchmark input must contain INSERTs only");
-        check(engine_execute(engine, &statement, NULL, NULL, &result)); count++;
+    if (argc < 2 || argc > 4) {
+        fputs("Usage: db_bench EMPTY_DIRECTORY [records=1000000] [queries=30]\n", stderr);
+        return 2;
     }
-    if (!count) die("empty dataset");
-    check(engine_close(engine));
-    uint64_t load_ns = now_ns() - start;
-    free(text);
-    start = now_ns(); check(engine_open(&engine, argv[2]));
-    uint64_t rebuild_ns = now_ns() - start;
-    sample measurements[MAX_SAMPLES]; uint64_t indexed[MAX_SAMPLES], linear[MAX_SAMPLES];
-    /* Two warmups run both paths before collecting paired measurements. */
-    for (unsigned i = 0; i < samples + 2; ++i) {
-        uint64_t id = 1 + ((count-1) * (i+1) / (samples+3));
-        char id_sql[128], code_sql[160];
-        snprintf(id_sql, sizeof(id_sql), "SELECT * FROM play_history WHERE id=%" PRIu64 ";", id);
-        snprintf(code_sql, sizeof(code_sql), "SELECT * FROM play_history WHERE event_code='PLAY%09" PRIu64 "';", id);
-        sql_statement by_id = parse(id_sql), by_code = parse(code_sql);
-        capture a = {.id=id}, b = {.id=id}; db_result indexed_result, linear_result;
-        uint64_t a_ns, b_ns;
-        if (i % 2) {
-            b_ns = query(engine, &by_code, &b, &linear_result);
-            a_ns = query(engine, &by_id, &a, &indexed_result);
+    uint64_t total = argc >= 3 ? parse_positive(argv[2], 100000000) : 1000000;
+    size_t queries = argc >= 4 ? (size_t)parse_positive(argv[3], 10000) : 30;
+    DbError error;
+    Db *db = db_open(argv[1], true, &error);
+    if (!db) fail(error.message);
+    if (execute_checked(db, "SELECT * FROM users LIMIT 1").affected_rows != 0) {
+        db_close(db);
+        fail("Benchmark requires an empty database directory; existing data was not changed");
+    }
+    double start = platform_now();
+    insert_generated_rows(db, total);
+    double insert_seconds = platform_now() - start;
+    db_close(db);
+    start = platform_now();
+    db = db_open(argv[1], true, &error);
+    if (!db) fail(error.message);
+    double rebuild_seconds = platform_now() - start;
+    DbStats stats;
+    if (db_get_stats(db, &stats, &error) != DB_OK) fail(error.message);
+    DbResult count_result = execute_checked(db, "SELECT * FROM users");
+    if (count_result.affected_rows != total) fail("Reopened row count mismatch");
+    double *indexed = calloc(queries, sizeof(double));
+    double *forced = calloc(queries, sizeof(double));
+    double *names = calloc(queries, sizeof(double));
+    if (!indexed || !forced || !names) fail("Cannot allocate timing samples");
+    uint32_t seed = 20261116u;
+    /* Warm page cache and each execution path before collecting timings. */
+    for (size_t iteration = 0; iteration < queries + 3; ++iteration) {
+        seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+        uint64_t id = (uint64_t)seed % total + 1;
+        char id_sql[128], name_sql[160];
+        snprintf(id_sql, sizeof(id_sql), "SELECT * FROM users WHERE id=%llu", (unsigned long long)id);
+        snprintf(name_sql, sizeof(name_sql), "SELECT * FROM users WHERE name='user_%llu'", (unsigned long long)id);
+        double a, b, c;
+        /* Alternate measurement order to reduce systematic cache/order bias. */
+        if (iteration % 2) {
+            c = measure_query(db, name_sql, false, id, total);
+            b = measure_query(db, id_sql, true, id, total);
+            a = measure_query(db, id_sql, false, id, 1);
         } else {
-            a_ns = query(engine, &by_id, &a, &indexed_result);
-            b_ns = query(engine, &by_code, &b, &linear_result);
+            a = measure_query(db, id_sql, false, id, 1);
+            b = measure_query(db, id_sql, true, id, total);
+            c = measure_query(db, name_sql, false, id, total);
         }
-        if (!indexed_result.used_index || indexed_result.scanned != 1 || linear_result.used_index || linear_result.scanned != count ||
-            a.record.id != b.record.id || a.record.user_id != b.record.user_id || a.record.song_id != b.record.song_id ||
-            strcmp(a.record.event_code, b.record.event_code) || strcmp(a.record.genre, b.record.genre)) die("lookup path/result mismatch");
-        if (i >= 2) {
-            unsigned j = i-2;
-            indexed[j] = a_ns; linear[j] = b_ns;
-            measurements[j] = (sample){id, a_ns, b_ns, indexed_result.index_nodes};
-        }
+        if (iteration >= 3) { indexed[iteration - 3] = a; forced[iteration - 3] = b; names[iteration - 3] = c; }
     }
-    check(engine_close(engine));
-    if (stat(argv[2], &info)) die("cannot stat database");
-    qsort(indexed, samples, sizeof(uint64_t), compare); qsort(linear, samples, sizeof(uint64_t), compare);
-    printf("{\"records\":%" PRIu64 ",\"file_bytes\":%" PRIu64 ",\"samples\":%u,\"load_ns\":%" PRIu64
-           ",\"rebuild_ns\":%" PRIu64 ",\"indexed_median_ns\":%" PRIu64 ",\"linear_median_ns\":%" PRIu64
-           ",\"indexed_min_ns\":%" PRIu64 ",\"indexed_max_ns\":%" PRIu64 ",\"linear_min_ns\":%" PRIu64 ",\"linear_max_ns\":%" PRIu64 ",\"queries\":[",
-           count, (uint64_t)info.st_size, samples, load_ns, rebuild_ns, indexed[samples/2], linear[samples/2],
-           indexed[0], indexed[samples-1], linear[0], linear[samples-1]);
-    for (unsigned i = 0; i < samples; ++i) {
-        sample s = measurements[i];
-        printf("%s{\"id\":%" PRIu64 ",\"indexed_ns\":%" PRIu64 ",\"linear_ns\":%" PRIu64
-               ",\"indexed_scanned\":1,\"linear_scanned\":%" PRIu64 ",\"index_nodes\":%" PRIu64 ",\"matched\":1}",
-               i ? "," : "", s.id, s.indexed_ns, s.linear_ns, count, s.nodes);
-    }
-    puts("]}");
-    return fflush(stdout) ? 1 : 0;
+    printf("records=%llu\nqueries=%zu\nseed=20261116\nbatch_size=%u\nsync_writes=true\n",
+           (unsigned long long)total, queries, BATCH_SIZE);
+    printf("insert_seconds=%.6f\nrebuild_seconds=%.6f\nfile_bytes=%llu\n",
+           insert_seconds, rebuild_seconds, (unsigned long long)storage_row_offset(total));
+    printf("index_height=%zu\nindex_nodes=%zu\nindex_memory_bytes=%zu\n",
+           stats.index_height, stats.index_nodes, stats.index_memory_bytes);
+    puts("cache=warm (OS cache is not dropped)\nquery,median_ms,p95_ms");
+    report_latencies("id_index", indexed, queries);
+    report_latencies("same_id_forced_scan", forced, queries);
+    report_latencies("unique_name_scan", names, queries);
+    puts("correctness=PASS (every query returned exactly the expected ID; examined counts verified)");
+    free(indexed); free(forced); free(names);
+    db_close(db);
+    return 0;
 }
